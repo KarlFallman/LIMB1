@@ -1,56 +1,76 @@
 import depthai as dai
 import cv2
-from blobconverter import from_openvino
+import mediapipe as mp
+mp_hands = mp.solutions.hands
 
-palm_blob = from_openvino(
-    xml="models/palm_detection_192x192.xml",
-    bin="models/palm_detection_192x192.bin",
-    shaves=4
+# -----------------------------
+# MediaPipe setup
+# -----------------------------
+mp_hands = mp.solutions.hands
+mp_drawing = mp.solutions.drawing_utils
+
+hands = mp_hands.Hands(
+    static_image_mode=False,
+    max_num_hands=1,
+    model_complexity=1,
+    min_detection_confidence=0.5,
+    min_tracking_confidence=0.5
 )
 
+# -----------------------------
+# DepthAI / OAK-D Lite setup
+# -----------------------------
 pipeline = dai.Pipeline()
 
-# Viktigt: .build() behövs i v3
 cam = pipeline.create(dai.node.Camera).build()
 cam.setSensorType(dai.CameraSensorType.COLOR)
 
-# Kameraoutput i rätt storlek för modellen
 cam_out = cam.requestOutput(
-    (192, 192),
+    (640, 480),
     type=dai.ImgFrame.Type.BGR888p
 )
 
-# NN
-nn = pipeline.create(dai.node.NeuralNetwork)
-nn.setBlobPath(palm_blob)
-
-# Länka kamerabilden till NN
-cam_out.link(nn.input)
-
-# Queues
 video_queue = cam_out.createOutputQueue(maxSize=4, blocking=False)
-nn_out = nn.out.createOutputQueue(maxSize=4, blocking=False)
 
 pipeline.start()
 print("OAK-D Lite is running. Press 'q' to quit.")
 
+# -----------------------------
+# Main loop
+# -----------------------------
 while pipeline.isRunning():
     frame_in = video_queue.get()
-    nn_data = nn_out.get()
-
     frame = frame_in.getCvFrame()
 
-    if nn_data is not None:
-        print("Typ:", type(nn_data))
+    if frame is None:
+        continue
 
-        if hasattr(nn_data, "getAllLayerNames"):
-            print("Layer names:", nn_data.getAllLayerNames())
+    # MediaPipe vill ha RGB
+    frame_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
 
-        print("Tillgängliga attribut:", dir(nn_data))
+    # Kör hand tracking
+    results = hands.process(frame_rgb)
 
-    cv2.imshow("Camera", frame)
+    # Rita skelett
+    if results.multi_hand_landmarks:
+        for hand_landmarks in results.multi_hand_landmarks:
+            mp_drawing.draw_landmarks(
+                frame,
+                hand_landmarks,
+                mp_hands.HAND_CONNECTIONS
+            )
 
-    if cv2.waitKey(1) == ord("q"):
+            # Om du även vill rita tydligare punkter själv:
+            h, w, _ = frame.shape
+            for lm in hand_landmarks.landmark:
+                x = int(lm.x * w)
+                y = int(lm.y * h)
+                cv2.circle(frame, (x, y), 4, (0, 0, 255), -1)
+
+    cv2.imshow("OAK-D Lite Hand Skeleton", frame)
+
+    if cv2.waitKey(1) & 0xFF == ord("q"):
         break
 
+hands.close()
 cv2.destroyAllWindows()
