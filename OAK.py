@@ -4,10 +4,12 @@ import mediapipe as mp
 mp_hands = mp.solutions.hands
 
 # -----------------------------
-# MediaPipe setup
+# MediaPipe setup You need to install mediapipe with: pip install mediapipe==0.10.14 if you have Python 3.12
 # -----------------------------
 mp_hands = mp.solutions.hands
 mp_drawing = mp.solutions.drawing_utils
+
+
 
 hands = mp_hands.Hands(
     static_image_mode=False,
