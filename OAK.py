@@ -9,8 +9,6 @@ mp_hands = mp.solutions.hands
 mp_hands = mp.solutions.hands
 mp_drawing = mp.solutions.drawing_utils
 
-
-
 hands = mp_hands.Hands(
     static_image_mode=False,
     max_num_hands=1,
@@ -18,6 +16,16 @@ hands = mp_hands.Hands(
     min_detection_confidence=0.5,
     min_tracking_confidence=0.5
 )
+
+mp_pose = mp.solutions.pose
+
+pose = mp_pose.Pose(
+    static_image_mode=False,
+    model_complexity=1,  # motsvarar ungefär "Full"
+    min_detection_confidence=0.5,
+    min_tracking_confidence=0.5
+)
+
 
 # -----------------------------
 # DepthAI / OAK-D Lite setup
@@ -52,6 +60,7 @@ while pipeline.isRunning():
 
     # Kör hand tracking
     results = hands.process(frame_rgb)
+    pose_results = pose.process(frame_rgb)
 
     # Rita skelett
     if results.multi_hand_landmarks:
@@ -69,10 +78,35 @@ while pipeline.isRunning():
                 y = int(lm.y * h)
                 cv2.circle(frame, (x, y), 4, (0, 0, 255), -1)
 
+    # Rita pose skelett
+    if pose_results.pose_landmarks:
+        h, w, _ = frame.shape
+        lm = pose_results.pose_landmarks.landmark
+
+        # Vänster arm
+        shoulder = lm[mp_pose.PoseLandmark.LEFT_SHOULDER]
+        elbow = lm[mp_pose.PoseLandmark.LEFT_ELBOW]
+        wrist = lm[mp_pose.PoseLandmark.LEFT_WRIST]
+
+        if shoulder.visibility > 0.5 and elbow.visibility > 0.5 and wrist.visibility > 0.5:
+            sx, sy = int(shoulder.x * w), int(shoulder.y * h)
+            ex, ey = int(elbow.x * w), int(elbow.y * h)
+            wx, wy = int(wrist.x * w), int(wrist.y * h)
+
+            # Rita punkter
+            cv2.circle(frame, (sx, sy), 6, (0, 0, 255), -1)
+            cv2.circle(frame, (ex, ey), 6, (0, 0, 255), -1)
+            cv2.circle(frame, (wx, wy), 6, (0, 0, 255), -1)
+
+            # Rita linjer
+            cv2.line(frame, (sx, sy), (ex, ey), (255, 255, 255), 3)
+            cv2.line(frame, (ex, ey), (wx, wy), (255, 255, 255), 3)
+
     cv2.imshow("OAK-D Lite Hand Skeleton", frame)
 
     if cv2.waitKey(1) & 0xFF == ord("q"):
         break
 
 hands.close()
+pose.close()
 cv2.destroyAllWindows()
