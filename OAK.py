@@ -49,6 +49,7 @@ print("OAK-D Lite is running. Press 'q' to quit.")
 # Main loop
 # -----------------------------
 while pipeline.isRunning():
+    hand_wrist_pixel = None
     frame_in = video_queue.get()
     frame = frame_in.getCvFrame()
 
@@ -61,6 +62,7 @@ while pipeline.isRunning():
     # Kör hand tracking
     results = hands.process(frame_rgb)
     pose_results = pose.process(frame_rgb)
+    hand_wrist_pixel = None
 
     # Rita skelett
     if results.multi_hand_landmarks:
@@ -73,10 +75,14 @@ while pipeline.isRunning():
 
             # Om du även vill rita tydligare punkter själv:
             h, w, _ = frame.shape
-            for lm in hand_landmarks.landmark:
+            for i, lm in enumerate(hand_landmarks.landmark):
                 x = int(lm.x * w)
                 y = int(lm.y * h)
                 cv2.circle(frame, (x, y), 4, (0, 0, 255), -1)
+
+                 # Spara handens handled
+                if i == mp_hands.HandLandmark.WRIST:
+                    hand_wrist_pixel = (x, y)
 
     # Rita pose skelett
     if pose_results.pose_landmarks:
@@ -91,7 +97,13 @@ while pipeline.isRunning():
         if shoulder.visibility > 0.5 and elbow.visibility > 0.5 and wrist.visibility > 0.5:
             sx, sy = int(shoulder.x * w), int(shoulder.y * h)
             ex, ey = int(elbow.x * w), int(elbow.y * h)
-            wx, wy = int(wrist.x * w), int(wrist.y * h)
+            # Använd handens handled om den finns, annars pose handled
+            if hand_wrist_pixel is not None:
+                wx, wy = hand_wrist_pixel
+            elif wrist.visibility > 0.5:
+                wx, wy = int(wrist.x * w), int(wrist.y * h)
+            else:
+                wx, wy = None, None
 
             # Rita punkter
             cv2.circle(frame, (sx, sy), 6, (0, 0, 255), -1)
