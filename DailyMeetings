@@ -179,3 +179,10 @@ methods LLM/DL which to compare
 update board
 Risks
 Friday
+Meeting with Martin
+Questions
+Can the cameras code be in python?
+Should we only mimic Right, Left or both arms?
+How should we show that the robot rec user?
+Can we use AI tools to translate from python to C?
+SEM1 method?
