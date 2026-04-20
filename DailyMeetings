@@ -185,7 +185,11 @@ Friday
 Meeting with Martin
 Questions
 Can the cameras code be in python?
+Could be but real time could be hard but measure time
 Should we only mimic Right, Left or both arms?
+We decide we can limit it
 How should we show that the robot rec user?
+2 ways show 3 people movements and user tell which one it feels for and print what user
 Can we use AI tools to translate from python to C?
+Good luck but we are allowed
 SEM1 method?
