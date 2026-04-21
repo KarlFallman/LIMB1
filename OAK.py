@@ -26,7 +26,6 @@ pose = mp_pose.Pose(
     min_tracking_confidence=0.5
 )
 
-
 # -----------------------------
 # DepthAI / OAK-D Lite setup
 # -----------------------------
@@ -64,7 +63,6 @@ while pipeline.isRunning():
     # Kör hand tracking
     results = hands.process(frame_rgb)
     pose_results = pose.process(frame_rgb)
-    hand_wrist_pixel = None
 
     # Rita skelett
     if results.multi_hand_landmarks and results.multi_handedness:
