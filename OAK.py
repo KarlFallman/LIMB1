@@ -56,6 +56,8 @@ while pipeline.isRunning():
     if frame is None:
         continue
 
+    frame = cv2.flip(frame, 1)  # Spegelvänd för mer naturlig interaktion    
+
     # MediaPipe vill ha RGB
     frame_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
 
@@ -65,8 +67,14 @@ while pipeline.isRunning():
     hand_wrist_pixel = None
 
     # Rita skelett
-    if results.multi_hand_landmarks:
-        for hand_landmarks in results.multi_hand_landmarks:
+    if results.multi_hand_landmarks and results.multi_handedness:
+        for hand_landmarks, handedness in zip(results.multi_hand_landmarks, results.multi_handedness):
+
+            label = handedness.classification[0].label  # "Left" eller "Right"
+
+            # FILTRERA - bara vänster hand
+            if label != "Left":
+                continue
             mp_drawing.draw_landmarks(
                 frame,
                 hand_landmarks,
@@ -90,9 +98,9 @@ while pipeline.isRunning():
         lm = pose_results.pose_landmarks.landmark
 
         # Vänster arm
-        shoulder = lm[mp_pose.PoseLandmark.LEFT_SHOULDER]
-        elbow = lm[mp_pose.PoseLandmark.LEFT_ELBOW]
-        wrist = lm[mp_pose.PoseLandmark.LEFT_WRIST]
+        shoulder = lm[mp_pose.PoseLandmark.RIGHT_SHOULDER]
+        elbow = lm[mp_pose.PoseLandmark.RIGHT_ELBOW]
+        wrist = lm[mp_pose.PoseLandmark.RIGHT_WRIST]
 
         if shoulder.visibility > 0.5 and elbow.visibility > 0.5 and wrist.visibility > 0.5:
             sx, sy = int(shoulder.x * w), int(shoulder.y * h)
