@@ -1,8 +1,6 @@
 import depthai as dai
 import cv2
 import mediapipe as mp
-mp_hands = mp.solutions.hands
-
 # -----------------------------
 # MediaPipe setup You need to install mediapipe with: pip install mediapipe==0.10.14 if you have Python 3.12
 # -----------------------------
@@ -55,10 +53,10 @@ while pipeline.isRunning():
     if frame is None:
         continue
 
-    frame = cv2.flip(frame, 1)  # Spegelvänd för mer naturlig interaktion    
-
     # MediaPipe vill ha RGB
     frame_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+
+    h, w, _ = frame.shape
 
     # Kör hand tracking
     results = hands.process(frame_rgb)
@@ -71,7 +69,7 @@ while pipeline.isRunning():
             label = handedness.classification[0].label  # "Left" eller "Right"
 
             # FILTRERA - bara vänster hand
-            if label != "Left":
+            if label != "Right":
                 continue
             mp_drawing.draw_landmarks(
                 frame,
@@ -80,11 +78,13 @@ while pipeline.isRunning():
             )
 
             # Om du även vill rita tydligare punkter själv:
-            h, w, _ = frame.shape
             for i, lm in enumerate(hand_landmarks.landmark):
                 x = int(lm.x * w)
                 y = int(lm.y * h)
+                z = lm.z
                 cv2.circle(frame, (x, y), 4, (0, 0, 255), -1)
+
+                print(f"Hand landmark {i}: x={x}, y={y}, z={z:.4f}")
 
                  # Spara handens handled
                 if i == mp_hands.HandLandmark.WRIST:
@@ -96,9 +96,9 @@ while pipeline.isRunning():
         lm = pose_results.pose_landmarks.landmark
 
         # Vänster arm
-        shoulder = lm[mp_pose.PoseLandmark.RIGHT_SHOULDER]
-        elbow = lm[mp_pose.PoseLandmark.RIGHT_ELBOW]
-        wrist = lm[mp_pose.PoseLandmark.RIGHT_WRIST]
+        shoulder = lm[mp_pose.PoseLandmark.LEFT_SHOULDER]
+        elbow = lm[mp_pose.PoseLandmark.LEFT_ELBOW]
+        wrist = lm[mp_pose.PoseLandmark.LEFT_WRIST]
 
         if shoulder.visibility > 0.5 and elbow.visibility > 0.5 and wrist.visibility > 0.5:
             sx, sy = int(shoulder.x * w), int(shoulder.y * h)
@@ -111,6 +111,13 @@ while pipeline.isRunning():
             else:
                 wx, wy = None, None
 
+            # Rita ut koordinater i terminalen
+            print(f"Shoulder: ({sx}, {sy})")
+            print(f"Elbow:    ({ex}, {ey})")
+            if wx is not None and wy is not None:
+                print(f"Wrist:    ({wx}, {wy})")
+            print("-----")
+
             # Rita punkter
             cv2.circle(frame, (sx, sy), 6, (0, 0, 255), -1)
             cv2.circle(frame, (ex, ey), 6, (0, 0, 255), -1)
@@ -120,6 +127,7 @@ while pipeline.isRunning():
             cv2.line(frame, (sx, sy), (ex, ey), (255, 255, 255), 3)
             cv2.line(frame, (ex, ey), (wx, wy), (255, 255, 255), 3)
 
+    frame = cv2.flip(frame, 1)  # Spegelvänd för mer naturlig interaktion 
     cv2.imshow("OAK-D Lite Hand Skeleton", frame)
 
     if cv2.waitKey(1) & 0xFF == ord("q"):
