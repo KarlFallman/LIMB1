@@ -1,6 +1,7 @@
 import depthai as dai
 import cv2
 import mediapipe as mp
+import numpy as np
 # -----------------------------
 # MediaPipe setup You need to install mediapipe with: pip install mediapipe==0.10.14 if you have Python 3.12
 # -----------------------------
@@ -36,11 +37,51 @@ cam_out = cam.requestOutput(
     (640, 480),
     type=dai.ImgFrame.Type.BGR888p
 )
+# -----------------------------
+# Stereo depth setup
+# -----------------------------
+mono_left = pipeline.create(dai.node.Camera).build(dai.CameraBoardSocket.CAM_B)
+mono_right = pipeline.create(dai.node.Camera).build(dai.CameraBoardSocket.CAM_C)
 
+left_out = mono_left.requestOutput((640, 400), type=dai.ImgFrame.Type.GRAY8)
+right_out = mono_right.requestOutput((640, 400), type=dai.ImgFrame.Type.GRAY8)
+
+stereo = pipeline.create(dai.node.StereoDepth)
+
+left_out.link(stereo.left)
+right_out.link(stereo.right)
+
+depth_queue = stereo.depth.createOutputQueue(maxSize=4, blocking=False)
 video_queue = cam_out.createOutputQueue(maxSize=4, blocking=False)
 
 pipeline.start()
 print("OAK-D Lite is running. Press 'q' to quit.")
+
+def get_depth_at_point(depth_frame, x, y, rgb_w, rgb_h):
+    if x is None or y is None:
+        return None
+
+    depth_h, depth_w = depth_frame.shape
+
+    # Skala RGB-koordinater till depth-bildens storlek
+    dx = int(x * depth_w / rgb_w)
+    dy = int(y * depth_h / rgb_h)
+
+    # Liten ruta runt punkten istället för exakt en pixel
+    radius = 6
+    x1 = max(0, dx - radius)
+    x2 = min(depth_w, dx + radius + 1)
+    y1 = max(0, dy - radius)
+    y2 = min(depth_h, dy + radius + 1)
+
+    roi = depth_frame[y1:y2, x1:x2]
+
+    valid_depths = roi[roi > 0]
+
+    if len(valid_depths) == 0:
+        return None
+
+    return int(np.median(valid_depths))
 
 # -----------------------------
 # Main loop
@@ -49,6 +90,12 @@ while pipeline.isRunning():
     hand_wrist_pixel = None
     frame_in = video_queue.get()
     frame = frame_in.getCvFrame()
+
+    depth_in = depth_queue.tryGet()
+    depth_frame = None
+
+    if depth_in is not None:
+        depth_frame = depth_in.getFrame()
 
     if frame is None:
         continue
@@ -112,11 +159,16 @@ while pipeline.isRunning():
                 wx, wy = None, None
 
             # Rita ut koordinater i terminalen
-            print(f"Shoulder: ({sx}, {sy})")
-            print(f"Elbow:    ({ex}, {ey})")
-            if wx is not None and wy is not None:
-                print(f"Wrist:    ({wx}, {wy})")
-            print("-----")
+            if depth_frame is not None:
+                shoulder_depth = get_depth_at_point(depth_frame, sx, sy, w, h)
+                elbow_depth = get_depth_at_point(depth_frame, ex, ey, w, h)
+                wrist_depth = get_depth_at_point(depth_frame, wx, wy, w, h)
+
+                print(f"Shoulder: x={sx}, y={sy}, depth={shoulder_depth} mm")
+                print(f"Elbow:    x={ex}, y={ey}, depth={elbow_depth} mm")
+                if wx is not None and wy is not None:
+                    print(f"Wrist:    x={wx}, y={wy}, depth={wrist_depth} mm")
+                print("-----")
 
             # Rita punkter
             cv2.circle(frame, (sx, sy), 6, (0, 0, 255), -1)
