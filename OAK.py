@@ -144,7 +144,7 @@ while pipeline.isRunning():
                     "depth_m": depth_m
                 })
                 cv2.circle(frame, (x, y), 4, (0, 0, 255), -1)
-                print(json.dumps(hand_keypoints, indent=2))
+                
 
                  # Spara handens handled
                 if i == mp_hands.HandLandmark.WRIST:
@@ -176,7 +176,8 @@ while pipeline.isRunning():
                 shoulder_depth = get_depth_at_point(depth_frame, sx, sy, w, h)
                 elbow_depth = get_depth_at_point(depth_frame, ex, ey, w, h)
                 wrist_depth = get_depth_at_point(depth_frame, wx, wy, w, h)
-
+                
+                print(json.dumps(hand_keypoints, indent=2))
                 if shoulder_depth is not None:
                     print(f"Shoulder: x={sx}, y={sy}, depth={shoulder_depth/1000:.3f} m")
                 else:
