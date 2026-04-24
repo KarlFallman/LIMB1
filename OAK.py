@@ -2,6 +2,7 @@ import depthai as dai
 import cv2
 import mediapipe as mp
 import numpy as np
+import json
 # -----------------------------
 # MediaPipe setup You need to install mediapipe with: pip install mediapipe==0.10.14 if you have Python 3.12
 # -----------------------------
@@ -88,6 +89,7 @@ def get_depth_at_point(depth_frame, x, y, rgb_w, rgb_h):
 # -----------------------------
 while pipeline.isRunning():
     hand_wrist_pixel = None
+    hand_keypoints = []
     frame_in = video_queue.get()
     frame = frame_in.getCvFrame()
 
@@ -128,10 +130,21 @@ while pipeline.isRunning():
             for i, lm in enumerate(hand_landmarks.landmark):
                 x = int(lm.x * w)
                 y = int(lm.y * h)
-                z = lm.z
-                cv2.circle(frame, (x, y), 4, (0, 0, 255), -1)
+            
+                depth_mm = None
+                if depth_frame is not None:
+                    depth_mm = get_depth_at_point(depth_frame, x, y, w, h)
 
-                print(f"Hand landmark {i}: x={x}, y={y}, z={z:.4f}")
+                depth_m = depth_mm / 1000 if depth_mm is not None else None
+
+                hand_keypoints.append({
+                    "id": i,
+                    "x": x,
+                    "y": y,
+                    "depth_m": depth_m
+                })
+                cv2.circle(frame, (x, y), 4, (0, 0, 255), -1)
+                print(json.dumps(hand_keypoints, indent=2))
 
                  # Spara handens handled
                 if i == mp_hands.HandLandmark.WRIST:
@@ -164,10 +177,20 @@ while pipeline.isRunning():
                 elbow_depth = get_depth_at_point(depth_frame, ex, ey, w, h)
                 wrist_depth = get_depth_at_point(depth_frame, wx, wy, w, h)
 
-                print(f"Shoulder: x={sx}, y={sy}, depth={shoulder_depth} mm")
-                print(f"Elbow:    x={ex}, y={ey}, depth={elbow_depth} mm")
+                if shoulder_depth is not None:
+                    print(f"Shoulder: x={sx}, y={sy}, depth={shoulder_depth/1000:.3f} m")
+                else:
+                    print(f"Shoulder: x={sx}, y={sy}, depth=None")
+
+                if elbow_depth is not None:
+                    print(f"Elbow:    x={ex}, y={ey}, depth={elbow_depth/1000:.3f} m")
+                else:
+                    print(f"Elbow:    x={ex}, y={ey}, depth=None")
                 if wx is not None and wy is not None:
-                    print(f"Wrist:    x={wx}, y={wy}, depth={wrist_depth} mm")
+                    if wrist_depth is not None:
+                        print(f"Wrist: x={wx}, y={wy}, depth={wrist_depth/1000:.3f} m")
+                    else:
+                        print(f"Wrist: x={wx}, y={wy}, depth=None")
                 print("-----")
 
             # Rita punkter
