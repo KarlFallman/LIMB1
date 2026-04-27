@@ -219,25 +219,7 @@ while pipeline.isRunning():
                         }
 
                         recorded_data.append(frame_data)
-
-            if recording:
-                frame_data = {
-                    "shoulder": [
-                        sx, sy,
-                        shoulder_depth / 1000 if shoulder_depth is not None else None
-                    ],
-                    "elbow": [
-                        ex, ey,
-                        elbow_depth / 1000 if elbow_depth is not None else None
-                    ],
-                    "wrist": [
-                        wx, wy,
-                        wrist_depth / 1000 if wrist_depth is not None else None
-                    ],
-                    "hand": hand_keypoints
-                }
-
-                recorded_data.append(frame_data)
+                        
             # Rita punkter
             cv2.circle(frame, (sx, sy), 6, (0, 0, 255), -1)
             cv2.circle(frame, (ex, ey), 6, (0, 0, 255), -1)
