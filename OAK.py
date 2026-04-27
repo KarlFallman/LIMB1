@@ -84,10 +84,15 @@ def get_depth_at_point(depth_frame, x, y, rgb_w, rgb_h):
 
     return int(np.median(valid_depths))
 
+recording = False
+recorded_data = []
+frame_count = 0
+
 # -----------------------------
 # Main loop
 # -----------------------------
 while pipeline.isRunning():
+    frame_count += 1
     hand_wrist_pixel = None
     hand_keypoints = []
     frame_in = video_queue.get()
@@ -145,8 +150,7 @@ while pipeline.isRunning():
                 })
                 cv2.circle(frame, (x, y), 4, (0, 0, 255), -1)
                 
-
-                 # Spara handens handled
+                # Spara handens handled
                 if i == mp_hands.HandLandmark.WRIST:
                     hand_wrist_pixel = (x, y)
 
@@ -177,23 +181,63 @@ while pipeline.isRunning():
                 elbow_depth = get_depth_at_point(depth_frame, ex, ey, w, h)
                 wrist_depth = get_depth_at_point(depth_frame, wx, wy, w, h)
                 
-                print(json.dumps(hand_keypoints, indent=2))
-                if shoulder_depth is not None:
-                    print(f"Shoulder: x={sx}, y={sy}, depth={shoulder_depth/1000:.3f} m")
-                else:
-                    print(f"Shoulder: x={sx}, y={sy}, depth=None")
-
-                if elbow_depth is not None:
-                    print(f"Elbow:    x={ex}, y={ey}, depth={elbow_depth/1000:.3f} m")
-                else:
-                    print(f"Elbow:    x={ex}, y={ey}, depth=None")
-                if wx is not None and wy is not None:
-                    if wrist_depth is not None:
-                        print(f"Wrist: x={wx}, y={wy}, depth={wrist_depth/1000:.3f} m")
+                if frame_count % 30 == 0:
+                    print(json.dumps(hand_keypoints, indent=2))
+                    if shoulder_depth is not None:
+                        print(f"Shoulder: x={sx}, y={sy}, depth={shoulder_depth/1000:.3f} m")
                     else:
-                        print(f"Wrist: x={wx}, y={wy}, depth=None")
-                print("-----")
+                        print(f"Shoulder: x={sx}, y={sy}, depth=None")
 
+                    if elbow_depth is not None:
+                        print(f"Elbow:    x={ex}, y={ey}, depth={elbow_depth/1000:.3f} m")
+                    else:
+                        print(f"Elbow:    x={ex}, y={ey}, depth=None")
+                    if wx is not None and wy is not None:
+                        if wrist_depth is not None:
+                            print(f"Wrist: x={wx}, y={wy}, depth={wrist_depth/1000:.3f} m")
+                        else:
+                            print(f"Wrist: x={wx}, y={wy}, depth=None")
+                    print("-----")
+                    print("Frame count:", frame_count)
+                    print("-----")
+
+                    if recording:
+                        frame_data = {
+                            "shoulder": [
+                                sx, sy,
+                                shoulder_depth / 1000 if shoulder_depth is not None else None
+                            ],
+                            "elbow": [
+                                ex, ey,
+                                elbow_depth / 1000 if elbow_depth is not None else None
+                            ],
+                            "wrist": [
+                                wx, wy,
+                                wrist_depth / 1000 if wrist_depth is not None else None
+                            ],
+                            "hand": hand_keypoints
+                        }
+
+                        recorded_data.append(frame_data)
+
+            if recording:
+                frame_data = {
+                    "shoulder": [
+                        sx, sy,
+                        shoulder_depth / 1000 if shoulder_depth is not None else None
+                    ],
+                    "elbow": [
+                        ex, ey,
+                        elbow_depth / 1000 if elbow_depth is not None else None
+                    ],
+                    "wrist": [
+                        wx, wy,
+                        wrist_depth / 1000 if wrist_depth is not None else None
+                    ],
+                    "hand": hand_keypoints
+                }
+
+                recorded_data.append(frame_data)
             # Rita punkter
             cv2.circle(frame, (sx, sy), 6, (0, 0, 255), -1)
             cv2.circle(frame, (ex, ey), 6, (0, 0, 255), -1)
@@ -206,7 +250,18 @@ while pipeline.isRunning():
     frame = cv2.flip(frame, 1)  # Spegelvänd för mer naturlig interaktion 
     cv2.imshow("OAK-D Lite Hand Skeleton", frame)
 
-    if cv2.waitKey(1) & 0xFF == ord("q"):
+    key = cv2.waitKey(1) & 0xFF
+
+    if key == ord('k'):
+        recording = not recording
+        print("Recording:", recording)
+
+        if not recording:
+            with open("recording.json", "w") as f:
+                json.dump(recorded_data, f, indent=2)
+            print("Saved recording.json")
+
+    if key == ord('q'):
         break
 
 hands.close()
