@@ -97,6 +97,7 @@ while pipeline.isRunning():
     hand_keypoints = []
     frame_in = video_queue.get()
     frame = frame_in.getCvFrame()
+    modolu = 10
 
     depth_in = depth_queue.tryGet()
     depth_frame = None
@@ -181,7 +182,7 @@ while pipeline.isRunning():
                 elbow_depth = get_depth_at_point(depth_frame, ex, ey, w, h)
                 wrist_depth = get_depth_at_point(depth_frame, wx, wy, w, h)
                 
-                if frame_count % 30 == 0:
+                if frame_count % modolu == 0:
                     print(json.dumps(hand_keypoints, indent=2))
                     if shoulder_depth is not None:
                         print(f"Shoulder: x={sx}, y={sy}, depth={shoulder_depth/1000:.3f} m")
@@ -240,7 +241,12 @@ while pipeline.isRunning():
 
         if not recording:
             with open("recording.json", "w") as f:
-                json.dump(recorded_data, f, indent=2)
+                output = {
+                    "user_id": 1,
+                    "sequence": len(recorded_data),
+                    "data": recorded_data
+                }  
+                json.dump(output, f, indent=2)
             print("Saved recording.json")
 
     if key == ord('q'):
