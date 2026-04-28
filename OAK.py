@@ -3,6 +3,7 @@ import cv2
 import mediapipe as mp
 import numpy as np
 import json
+from kalman_filter import KalmanPointFilter
 # -----------------------------
 # MediaPipe setup You need to install mediapipe with: pip install mediapipe==0.10.14 if you have Python 3.12
 # -----------------------------

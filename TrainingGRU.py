@@ -1,24 +1,130 @@
 #pytorch,jupyter
 #Parametrar XYZ, ID
 #INPUT HIDDEN EXPORT ONNX
+import os
+import json
+import random
+import numpy as np
+
 import torch
 import torch.nn as nn
-import torch.optim as optim
 import torch.nn.functional as F
-import random
+import torch.optim as optim
+from torch.utils.data import Dataset
+
 
 # =========================
 # CONFIG
 # =========================
-INPUT_SIZE = 69        # 23 joints * 3 coords
+INPUT_SIZE = 69
 HIDDEN_SIZE = 64
 EMBED_SIZE = 32
-SEQ_LEN = 20 # Frames/Modulo
+#SEQ_LEN = 20
 BATCH_SIZE = 32
 EPOCHS = 10
 
+
 # =========================
-# MODEL
+# FRAME -> VECTOR
+# =========================
+def frame_to_vector(frame):
+    vec = []
+
+    for joint in ["shoulder", "elbow", "wrist"]:
+        vec.extend(frame.get(joint, [0.0, 0.0, 0.0]))
+
+    hand = frame.get("hand", [])
+    hand_map = {p["id"]: p for p in hand}
+
+    for i in range(20):
+        if i in hand_map:
+            p = hand_map[i]
+            vec.extend([p["x"], p["y"], p["depth_m"]])
+        else:
+            vec.extend([0.0, 0.0, 0.0])
+
+    return np.array(vec, dtype=np.float32)
+
+
+# =========================
+# LOAD JSON
+# =========================
+def load_sequence(path):
+    with open(path, "r") as f:
+        raw = json.load(f)
+
+    user_id = raw["user_id"]
+    data = raw["data"]
+
+    seq = [frame_to_vector(f) for f in data]
+    seq = np.stack(seq)
+
+    return seq, user_id
+
+
+# =========================
+# SPLIT INTO SEQUENCES
+# =========================
+def split_sequence(seq):
+    chunks = []
+    for i in range(0, len(seq) - SEQ_LEN + 1, SEQ_LEN):
+        chunks.append(seq[i:i+SEQ_LEN])
+    return chunks
+
+
+# =========================
+# DATASET
+# =========================
+class MovementDataset(Dataset):
+    def __init__(self, folder):
+        self.samples = []
+
+        for file in os.listdir(folder):
+            if not file.endswith(".json"):
+                continue
+
+            seq, user_id = load_sequence(os.path.join(folder, file))
+            #chunks = split_sequence(seq)
+
+            #for c in chunks:
+            self.samples.append((c, user_id))
+
+    def __len__(self):
+        return len(self.samples)
+
+    def __getitem__(self, idx):
+        seq, user_id = self.samples[idx]
+        return self.samples[idx]
+
+
+# =========================
+# TRIPLET DATASET
+# =========================
+class TripletDataset(Dataset):
+    def __init__(self, base):
+        self.data = base.samples
+
+    def __len__(self):
+        return len(self.data)
+
+    def __getitem__(self, idx):
+        anchor, user = self.data[idx]
+
+        positives = [x for x in self.data if x[1] == user]
+        negatives = [x for x in self.data if x[1] != user]
+
+        positive = random.choice(positives)[0]
+        negative = random.choice(negatives)[0]
+
+        return (
+            torch.tensor(anchor, dtype=torch.float32),
+            torch.tensor(positive, dtype=torch.float32),
+            torch.tensor(negative, dtype=torch.float32),
+        )
+
+
+# =========================
+# MODEL (GRU)
 # =========================
 class MovementGRU(nn.Module):
     def __init__(self):
@@ -30,58 +136,11 @@ class MovementGRU(nn.Module):
         out, _ = self.gru(x)
         out = out[:, -1, :]
         emb = self.fc(out)
-        emb = F.normalize(emb, dim=1)  # important for similarity
-        return emb
+        return F.normalize(emb, dim=1)
 
 
 # =========================
-# DUMMY DATASET (replace!)
-# =========================
-class DummyDataset:
-    def __init__(self, num_users=5):
-        self.num_users = num_users
-
-    def sample_sequence(self, user_id):
-        # simulate slightly different motion per user
-        base = torch.randn(SEQ_LEN, INPUT_SIZE) + user_id * 0.5
-        noise = torch.randn_like(base) * 0.1
-        return base + noise
-
-    def get_triplet(self):
-        user = random.randint(0, self.num_users - 1)
-        other = (user + random.randint(1, self.num_users - 1)) % self.num_users
-
-        anchor = self.sample_sequence(user)
-        positive = self.sample_sequence(user)
-        negative = self.sample_sequence(other)
-
-        return anchor, positive, negative
-
-
-dataset = DummyDataset()
-
-
-# =========================
-# BATCH SAMPLER
-# =========================
-def get_batch(batch_size):
-    anchors, positives, negatives = [], [], []
-
-    for _ in range(batch_size):
-        a, p, n = dataset.get_triplet()
-        anchors.append(a)
-        positives.append(p)
-        negatives.append(n)
-
-    return (
-        torch.stack(anchors),
-        torch.stack(positives),
-        torch.stack(negatives),
-    )
-
-
-# =========================
-# TRAINING SETUP
+# TRAIN LOOP
 # =========================
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
@@ -89,29 +148,32 @@ model = MovementGRU().to(device)
 optimizer = optim.Adam(model.parameters(), lr=1e-3)
 criterion = nn.TripletMarginLoss(margin=1.0)
 
+dataset = TripletDataset(MovementDataset("data"))
 
-# =========================
-# TRAIN LOOP
-# =========================
 for epoch in range(EPOCHS):
     model.train()
+    total_loss = 0
 
-    anchors, positives, negatives = get_batch(BATCH_SIZE)
-    anchors = anchors.to(device)
-    positives = positives.to(device)
-    negatives = negatives.to(device)
+    for i in range(0, len(dataset), BATCH_SIZE):
+        batch = [dataset[j] for j in range(i, min(i+BATCH_SIZE, len(dataset)))]
 
-    emb_a = model(anchors)
-    emb_p = model(positives)
-    emb_n = model(negatives)
+        anchor = torch.stack([b[0] for b in batch]).to(device)
+        positive = torch.stack([b[1] for b in batch]).to(device)
+        negative = torch.stack([b[2] for b in batch]).to(device)
 
-    loss = criterion(emb_a, emb_p, emb_n)
+        a = model(anchor)
+        p = model(positive)
+        n = model(negative)
 
-    optimizer.zero_grad()
-    loss.backward()
-    optimizer.step()
+        loss = criterion(a, p, n)
 
-    print(f"Epoch {epoch+1}, Loss: {loss.item():.4f}")
+        optimizer.zero_grad()
+        loss.backward()
+        optimizer.step()
+
+        total_loss += loss.item()
+
+    print(f"Epoch {epoch+1}, Loss: {total_loss:.4f}")
 
 
 # =========================
