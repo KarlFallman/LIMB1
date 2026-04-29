@@ -2,7 +2,8 @@ import numpy as np
 
 
 class KalmanPointFilter:
-    def __init__(self, dt=1.0, process_noise=1e-2, measurement_noise=1e-1):
+    def __init__(self, dt=1.0, process_noise=1e-2, measurement_noise=1e-1): 
+        #Ökad process_noise för att sänka latencyn
         """
         Kalman filter för en punkt (x, y, z)
 
@@ -44,27 +45,43 @@ class KalmanPointFilter:
 
         self.initialized = False
 
-    def update(self, x, y, z=None):
+    def update(self, x, y, z=None, measurement_valid=True):
         """
-        Uppdatera filtret med ny mätning
+        Om measurement_valid=True:
+            använd ny mätning.
+        Om measurement_valid=False:
+            håll senaste värde, ingen prediction.
         """
 
-        if z is None:
-            z = 0.0
-
-        z_meas = np.array([[x], [y], [z]])
-
-        # Första gången → initiera
+        # Initiera första gången
         if not self.initialized:
-            self.x[:3] = z_meas
+            if x is None or y is None:
+                return None, None, None
+
+            if z is None:
+                z = 0.0
+
+            self.x[:3] = np.array([[x], [y], [z]])
             self.initialized = True
             return x, y, z
+
+        # Om mätningen är dålig:
+        # gör INTE prediction, håll senaste värde
+        if not measurement_valid or x is None or y is None:
+            return float(self.x[0, 0]), float(self.x[1, 0]), float(self.x[2, 0])
+
+        # Om z saknas men x,y finns:
+        # använd senaste z
+        if z is None:
+            z = float(self.x[2, 0])
 
         # --- Prediction ---
         self.x = self.F @ self.x
         self.P = self.F @ self.P @ self.F.T + self.Q
 
         # --- Update ---
+        z_meas = np.array([[x], [y], [z]])
+
         y_residual = z_meas - (self.H @ self.x)
         S = self.H @ self.P @ self.H.T + self.R
         K = self.P @ self.H.T @ np.linalg.inv(S)
@@ -72,4 +89,4 @@ class KalmanPointFilter:
         self.x = self.x + K @ y_residual
         self.P = (np.eye(6) - K @ self.H) @ self.P
 
-        return float(self.x[0]), float(self.x[1]), float(self.x[2])
+        return float(self.x[0, 0]), float(self.x[1, 0]), float(self.x[2, 0])

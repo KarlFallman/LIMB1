@@ -89,6 +89,10 @@ recording = False
 recorded_data = []
 frame_count = 0
 
+wrist_filter = KalmanPointFilter()
+elbow_filter = KalmanPointFilter()
+shoulder_filter = KalmanPointFilter()
+
 # -----------------------------
 # Main loop
 # -----------------------------
@@ -156,6 +160,9 @@ while pipeline.isRunning():
                 if i == mp_hands.HandLandmark.WRIST:
                     hand_wrist_pixel = (x, y)
 
+    # Reasonable limits for depth measurements (0.2m - 3m)                
+    def valid_depth(depth_mm):
+        return depth_mm is not None and 200 < depth_mm < 3000
     # Rita pose skelett
     if pose_results.pose_landmarks:
         h, w, _ = frame.shape
@@ -169,6 +176,7 @@ while pipeline.isRunning():
         if shoulder.visibility > 0.5 and elbow.visibility > 0.5 and wrist.visibility > 0.5:
             sx, sy = int(shoulder.x * w), int(shoulder.y * h)
             ex, ey = int(elbow.x * w), int(elbow.y * h)
+
             # Använd handens handled om den finns, annars pose handled
             if hand_wrist_pixel is not None:
                 wx, wy = hand_wrist_pixel
@@ -177,59 +185,66 @@ while pipeline.isRunning():
             else:
                 wx, wy = None, None
 
+            if wx is None or wy is None:
+                continue
+            fsx, fsy, fsz = sx, sy, None
+            fex, fey, fez = ex, ey, None
+            fwx, fwy, fwz = wx, wy, None
+
             # Rita ut koordinater i terminalen
             if depth_frame is not None:
                 shoulder_depth = get_depth_at_point(depth_frame, sx, sy, w, h)
                 elbow_depth = get_depth_at_point(depth_frame, ex, ey, w, h)
                 wrist_depth = get_depth_at_point(depth_frame, wx, wy, w, h)
+
+                shoulder_z = shoulder_depth / 1000 if valid_depth(shoulder_depth) else None
+                elbow_z = elbow_depth / 1000 if valid_depth(elbow_depth) else None
+                wrist_z = wrist_depth / 1000 if valid_depth(wrist_depth) else None
+
+                fsx, fsy, fsz = shoulder_filter.update(sx, sy, shoulder_z,measurement_valid=shoulder_z is not None)
+                fex, fey, fez = elbow_filter.update(ex, ey, elbow_z,measurement_valid=elbow_z is not None)
+                fwx, fwy, fwz = wrist_filter.update(wx, wy, wrist_z,measurement_valid=wrist_z is not None)   
                 
                 if frame_count % modolu == 0:
                     print(json.dumps(hand_keypoints, indent=2))
                     if shoulder_depth is not None:
-                        print(f"Shoulder: x={sx}, y={sy}, depth={shoulder_depth/1000:.3f} m")
+                        print(f"Shoulder: x={fsx:.3f}, y={fsy:.3f}, depth={fsz:.3f} m")
                     else:
-                        print(f"Shoulder: x={sx}, y={sy}, depth=None")
+                        print(f"Shoulder: x={fsx:.3f}, y={fsy:.3f}, depth=None")
 
                     if elbow_depth is not None:
-                        print(f"Elbow:    x={ex}, y={ey}, depth={elbow_depth/1000:.3f} m")
+                        print(f"Elbow:    x={fex:.3f}, y={fey:.3f}, depth={fez:.3f} m")
                     else:
-                        print(f"Elbow:    x={ex}, y={ey}, depth=None")
+                        print(f"Elbow:    x={fex:.3f}, y={fey:.3f}, depth=None")
                     if wx is not None and wy is not None:
                         if wrist_depth is not None:
-                            print(f"Wrist: x={wx}, y={wy}, depth={wrist_depth/1000:.3f} m")
+                            print(f"Wrist: x={fwx:.3f}, y={fwy:.3f}, depth={fwz:.3f} m")
                         else:
-                            print(f"Wrist: x={wx}, y={wy}, depth=None")
+                            print(f"Wrist: x={fwx}, y={fwy}, depth=None")
                     print("-----")
                     print("Frame count:", frame_count)
                     print("-----")
 
                     if recording:
                         frame_data = {
-                            "shoulder": [
-                                sx, sy,
-                                shoulder_depth / 1000 if shoulder_depth is not None else None
-                            ],
-                            "elbow": [
-                                ex, ey,
-                                elbow_depth / 1000 if elbow_depth is not None else None
-                            ],
-                            "wrist": [
-                                wx, wy,
-                                wrist_depth / 1000 if wrist_depth is not None else None
-                            ],
+                            "shoulder": [fsx, fsy, fsz],
+                            "elbow": [fex, fey, fez],
+                            "wrist": [fwx, fwy, fwz],
                             "hand": hand_keypoints
                         }
 
                         recorded_data.append(frame_data)
                         
-            # Rita punkter
-            cv2.circle(frame, (sx, sy), 6, (0, 0, 255), -1)
-            cv2.circle(frame, (ex, ey), 6, (0, 0, 255), -1)
-            cv2.circle(frame, (wx, wy), 6, (0, 0, 255), -1)
+            if fsx is None or fsy is None or fex is None or fey is None or fwx is None or fwy is None:
+                continue
 
-            # Rita linjer
-            cv2.line(frame, (sx, sy), (ex, ey), (255, 255, 255), 3)
-            cv2.line(frame, (ex, ey), (wx, wy), (255, 255, 255), 3)
+            # Rita punkter
+            cv2.circle(frame, (int(fsx), int(fsy)), 6, (0, 255, 0), -1)
+            cv2.circle(frame, (int(fex), int(fey)), 6, (0, 255, 0), -1)
+            cv2.circle(frame, (int(fwx), int(fwy)), 6, (0, 255, 0), -1)
+
+            cv2.line(frame, (int(fsx), int(fsy)), (int(fex), int(fey)), (255, 255, 255), 3)
+            cv2.line(frame, (int(fex), int(fey)), (int(fwx), int(fwy)), (255, 255, 255), 3)
 
     frame = cv2.flip(frame, 1)  # Spegelvänd för mer naturlig interaktion 
     cv2.imshow("OAK-D Lite Hand Skeleton", frame)
