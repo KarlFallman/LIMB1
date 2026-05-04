@@ -213,7 +213,20 @@ while pipeline.isRunning():
 
                 fsx, fsy, fsz = shoulder_filter.update(sx, sy, shoulder_z,measurement_valid=shoulder_z is not None)
                 fex, fey, fez = elbow_filter.update(ex, ey, elbow_z,measurement_valid=elbow_z is not None)
-                fwx, fwy, fwz = wrist_filter.update(wx, wy, wrist_z,measurement_valid=wrist_z is not None)   
+
+                if hand_wrist_pixel is not None:
+                    fwx, fwy = wx, wy
+
+                    # Hämta depth från hand landmark 0, alltså wrist
+                    if len(hand_keypoints) > 0:
+                        fwz = hand_keypoints[0]["depth_m"]
+                    else:
+                        fwz = wrist_z
+                else:
+                    fwx, fwy, fwz = wrist_filter.update(
+                        wx, wy, wrist_z,
+                        measurement_valid=wrist_z is not None
+                    )   
                 
                 if frame_count % modolu == 0:
                     print(json.dumps(hand_keypoints, indent=2))
@@ -226,7 +239,7 @@ while pipeline.isRunning():
                         print(f"Elbow:    x={fex:.3f}, y={fey:.3f}, depth={fez:.3f} m")
                     else:
                         print(f"Elbow:    x={fex:.3f}, y={fey:.3f}, depth=None")
-                    if wx is not None and wy is not None:
+                    if hand_wrist_pixel is not None:
                         if wrist_depth is not None:
                             print(f"Wrist: x={fwx:.3f}, y={fwy:.3f}, depth={fwz:.3f} m")
                         else:
