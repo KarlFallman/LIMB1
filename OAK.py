@@ -96,6 +96,7 @@ frame_count = 0
 wrist_filter = KalmanPointFilter()
 elbow_filter = KalmanPointFilter()
 shoulder_filter = KalmanPointFilter()
+hand_filters = [KalmanPointFilter() for _ in range(21)]
 
 # -----------------------------
 # Main loop
@@ -150,19 +151,27 @@ while pipeline.isRunning():
                 if depth_frame is not None:
                     depth_mm = get_depth_at_point(depth_frame, x, y, w, h)
 
-                depth_m = depth_mm / 1000 if depth_mm is not None else None
+                depth_valid = valid_depth(depth_mm)
+                depth_m = depth_mm / 1000 if depth_valid else None
+
+                fx, fy, fz = hand_filters[i].update(
+                    x,
+                    y,
+                    depth_m,
+                    measurement_valid=True
+                )
 
                 hand_keypoints.append({
                     "id": i,
-                    "x": x,
-                    "y": y,
-                    "depth_m": depth_m
+                    "x": fx,
+                    "y": fy,
+                    "depth_m": fz
                 })
-                cv2.circle(frame, (x, y), 4, (0, 0, 255), -1)
+                cv2.circle(frame, (int(fx), int(fy)), 4, (0, 255, 0), -1)
                 
                 # Spara handens handled
                 if i == mp_hands.HandLandmark.WRIST:
-                    hand_wrist_pixel = (x, y)
+                    hand_wrist_pixel = (int(fx), int(fy))
 
     # Rita pose skelett
     if pose_results.pose_landmarks:
@@ -173,7 +182,6 @@ while pipeline.isRunning():
         shoulder = lm[mp_pose.PoseLandmark.LEFT_SHOULDER]
         elbow = lm[mp_pose.PoseLandmark.LEFT_ELBOW]
         wrist = lm[mp_pose.PoseLandmark.LEFT_WRIST]
-        hand_filters = [KalmanPointFilter() for _ in range(21)]
 
         if shoulder.visibility > 0.5 and elbow.visibility > 0.5 and wrist.visibility > 0.5:
             sx, sy = int(shoulder.x * w), int(shoulder.y * h)

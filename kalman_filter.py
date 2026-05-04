@@ -2,7 +2,7 @@ import numpy as np
 
 
 class KalmanPointFilter:
-    def __init__(self, dt=1.0, process_noise=1e-2, measurement_noise=1e-1): 
+    def __init__(self, dt=1.0, process_noise=1e-1, measurement_noise=1e-1): 
         #Ökad process_noise för att sänka latencyn
         """
         Kalman filter för en punkt (x, y, z)
