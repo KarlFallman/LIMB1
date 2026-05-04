@@ -94,7 +94,7 @@ class MovementDataset(Dataset):
 
     def __getitem__(self, idx):
         seq, user_id = self.samples[idx]
-        return self.samples[idx]
+        return seq, user_id
 
 
 # =========================
@@ -148,7 +148,7 @@ model = MovementGRU().to(device)
 optimizer = optim.Adam(model.parameters(), lr=1e-3)
 criterion = nn.TripletMarginLoss(margin=1.0)
 
-dataset = TripletDataset(MovementDataset("data"))
+dataset = TripletDataset(MovementDataset("Data"))
 
 for epoch in range(EPOCHS):
     model.train()
