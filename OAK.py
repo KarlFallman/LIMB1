@@ -96,6 +96,7 @@ frame_count = 0
 wrist_filter = KalmanPointFilter()
 elbow_filter = KalmanPointFilter()
 shoulder_filter = KalmanPointFilter()
+hand_filters = [KalmanPointFilter() for _ in range(21)]
 
 # -----------------------------
 # Main loop
@@ -150,19 +151,27 @@ while pipeline.isRunning():
                 if depth_frame is not None:
                     depth_mm = get_depth_at_point(depth_frame, x, y, w, h)
 
-                depth_m = depth_mm / 1000 if depth_mm is not None else None
+                depth_valid = valid_depth(depth_mm)
+                depth_m = depth_mm / 1000 if depth_valid else None
+
+                fx, fy, fz = hand_filters[i].update(
+                    x,
+                    y,
+                    depth_m,
+                    measurement_valid=True
+                )
 
                 hand_keypoints.append({
                     "id": i,
-                    "x": x,
-                    "y": y,
-                    "depth_m": depth_m
+                    "x": fx,
+                    "y": fy,
+                    "depth_m": fz
                 })
-                cv2.circle(frame, (x, y), 4, (0, 0, 255), -1)
+                cv2.circle(frame, (int(fx), int(fy)), 4, (0, 255, 0), -1)
                 
                 # Spara handens handled
                 if i == mp_hands.HandLandmark.WRIST:
-                    hand_wrist_pixel = (x, y)
+                    hand_wrist_pixel = (int(fx), int(fy))
 
     # Rita pose skelett
     if pose_results.pose_landmarks:
@@ -173,7 +182,6 @@ while pipeline.isRunning():
         shoulder = lm[mp_pose.PoseLandmark.LEFT_SHOULDER]
         elbow = lm[mp_pose.PoseLandmark.LEFT_ELBOW]
         wrist = lm[mp_pose.PoseLandmark.LEFT_WRIST]
-        hand_filters = [KalmanPointFilter() for _ in range(21)]
 
         if shoulder.visibility > 0.5 and elbow.visibility > 0.5 and wrist.visibility > 0.5:
             sx, sy = int(shoulder.x * w), int(shoulder.y * h)
@@ -205,7 +213,20 @@ while pipeline.isRunning():
 
                 fsx, fsy, fsz = shoulder_filter.update(sx, sy, shoulder_z,measurement_valid=shoulder_z is not None)
                 fex, fey, fez = elbow_filter.update(ex, ey, elbow_z,measurement_valid=elbow_z is not None)
-                fwx, fwy, fwz = wrist_filter.update(wx, wy, wrist_z,measurement_valid=wrist_z is not None)   
+
+                if hand_wrist_pixel is not None:
+                    fwx, fwy = wx, wy
+
+                    # Hämta depth från hand landmark 0, alltså wrist
+                    if len(hand_keypoints) > 0:
+                        fwz = hand_keypoints[0]["depth_m"]
+                    else:
+                        fwz = wrist_z
+                else:
+                    fwx, fwy, fwz = wrist_filter.update(
+                        wx, wy, wrist_z,
+                        measurement_valid=wrist_z is not None
+                    )   
                 
                 if frame_count % modolu == 0:
                     print(json.dumps(hand_keypoints, indent=2))
@@ -218,7 +239,7 @@ while pipeline.isRunning():
                         print(f"Elbow:    x={fex:.3f}, y={fey:.3f}, depth={fez:.3f} m")
                     else:
                         print(f"Elbow:    x={fex:.3f}, y={fey:.3f}, depth=None")
-                    if wx is not None and wy is not None:
+                    if hand_wrist_pixel is not None:
                         if wrist_depth is not None:
                             print(f"Wrist: x={fwx:.3f}, y={fwy:.3f}, depth={fwz:.3f} m")
                         else:
@@ -231,7 +252,6 @@ while pipeline.isRunning():
                         frame_data = {
                             "shoulder": [fsx, fsy, fsz],
                             "elbow": [fex, fey, fez],
-                            "wrist": [fwx, fwy, fwz],
                             "hand": hand_keypoints
                         }
 
