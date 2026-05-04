@@ -85,6 +85,10 @@ def get_depth_at_point(depth_frame, x, y, rgb_w, rgb_h):
 
     return int(np.median(valid_depths))
 
+# Reasonable limits for depth measurements (0.2m - 3m)                
+def valid_depth(depth_mm):
+    return depth_mm is not None and 200 < depth_mm < 3000
+
 recording = False
 recorded_data = []
 frame_count = 0
@@ -160,9 +164,6 @@ while pipeline.isRunning():
                 if i == mp_hands.HandLandmark.WRIST:
                     hand_wrist_pixel = (x, y)
 
-    # Reasonable limits for depth measurements (0.2m - 3m)                
-    def valid_depth(depth_mm):
-        return depth_mm is not None and 200 < depth_mm < 3000
     # Rita pose skelett
     if pose_results.pose_landmarks:
         h, w, _ = frame.shape
@@ -172,6 +173,7 @@ while pipeline.isRunning():
         shoulder = lm[mp_pose.PoseLandmark.LEFT_SHOULDER]
         elbow = lm[mp_pose.PoseLandmark.LEFT_ELBOW]
         wrist = lm[mp_pose.PoseLandmark.LEFT_WRIST]
+        hand_filters = [KalmanPointFilter() for _ in range(21)]
 
         if shoulder.visibility > 0.5 and elbow.visibility > 0.5 and wrist.visibility > 0.5:
             sx, sy = int(shoulder.x * w), int(shoulder.y * h)
