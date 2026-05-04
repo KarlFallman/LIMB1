@@ -32,7 +32,7 @@ ONNX_PATH = "movement_gru.onnx"
 def frame_to_vector(frame):
     vec = []
 
-    for joint in ["shoulder", "elbow", "wrist"]:
+    for joint in ["shoulder", "elbow"]:
         vec.extend(frame.get(joint, [0.0, 0.0, 0.0]))
 
     hand = frame.get("hand", [])
