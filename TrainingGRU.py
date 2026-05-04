@@ -1,4 +1,4 @@
-#pytorch,jupyter
+#pytorch
 #Parametrar XYZ, ID
 #INPUT HIDDEN EXPORT ONNX
 import os
@@ -19,9 +19,11 @@ from torch.utils.data import Dataset
 INPUT_SIZE = 69
 HIDDEN_SIZE = 64
 EMBED_SIZE = 32
-#SEQ_LEN = 20
+MAX_SEQ_LEN = 26  # Max längd för padding
 BATCH_SIZE = 32
 EPOCHS = 10
+EXPORT_THRESHOLD = 0.01
+ONNX_PATH = "movement_gru.onnx"
 
 
 # =========================
@@ -36,7 +38,7 @@ def frame_to_vector(frame):
     hand = frame.get("hand", [])
     hand_map = {p["id"]: p for p in hand}
 
-    for i in range(20):
+    for i in range(21):
         if i in hand_map:
             p = hand_map[i]
             vec.extend([p["x"], p["y"], p["depth_m"]])
@@ -54,21 +56,36 @@ def load_sequence(path):
         raw = json.load(f)
 
     user_id = raw["user_id"]
+    sequence_num = raw["sequence"]  # Används kanske senare
     data = raw["data"]
 
     seq = [frame_to_vector(f) for f in data]
     seq = np.stack(seq)
 
-    return seq, user_id
+    return seq, user_id, sequence_num
 
 
 # =========================
 # SPLIT INTO SEQUENCES
 # =========================
-def split_sequence(seq):
+def split_sequence(seq, seq_len):
+    seq_len = min(seq_len, MAX_SEQ_LEN)  # Begränsa till max
+    if len(seq) < seq_len:
+        # Om sekvensen är kortare, använd hela och pad till seq_len
+        pad_len = seq_len - len(seq)
+        pad = np.zeros((pad_len, seq.shape[1]))
+        seq_padded = np.vstack([seq, pad])
+        return [seq_padded]
+    
     chunks = []
-    for i in range(0, len(seq) - SEQ_LEN + 1, SEQ_LEN):
-        chunks.append(seq[i:i+SEQ_LEN])
+    for i in range(0, len(seq) - seq_len + 1, seq_len):
+        chunk = seq[i:i+seq_len]
+        # Pad chunk till MAX_SEQ_LEN om nödvändigt
+        if len(chunk) < MAX_SEQ_LEN:
+            pad_len = MAX_SEQ_LEN - len(chunk)
+            pad = np.zeros((pad_len, seq.shape[1]))
+            chunk = np.vstack([chunk, pad])
+        chunks.append(chunk)
     return chunks
 
 
@@ -83,18 +100,18 @@ class MovementDataset(Dataset):
             if not file.endswith(".json"):
                 continue
 
-            seq, user_id = load_sequence(os.path.join(folder, file))
-            #chunks = split_sequence(seq)
+            seq, user_id, sequence_num = load_sequence(os.path.join(folder, file))
+            chunks = split_sequence(seq, sequence_num)
 
-            #for c in chunks:
-            self.samples.append((c, user_id))
+            for c in chunks:
+                self.samples.append((c, user_id))
 
     def __len__(self):
         return len(self.samples)
 
     def __getitem__(self, idx):
         seq, user_id = self.samples[idx]
-        return self.samples[idx]
+        return seq, user_id
 
 
 # =========================
@@ -139,12 +156,30 @@ class MovementGRU(nn.Module):
         return F.normalize(emb, dim=1)
 
 
+def export_model_to_onnx(model, path):
+    model.eval()
+    dummy_input = torch.randn(1, MAX_SEQ_LEN, INPUT_SIZE, device=device)
+    torch.onnx.export(
+        model,
+        dummy_input,
+        path,
+        input_names=["input"],
+        output_names=["output"],
+        opset_version=13,
+        do_constant_folding=True,
+    )
+    print(f"Exported ONNX model to {path}")
+
+
 # =========================
 # TRAIN LOOP
 # =========================
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
 model = MovementGRU().to(device)
+if os.path.exists("movement_gru.pth"):
+    model.load_state_dict(torch.load("movement_gru.pth"))
+    print("Loaded existing model.")
 optimizer = optim.Adam(model.parameters(), lr=1e-3)
 criterion = nn.TripletMarginLoss(margin=1.0)
 
@@ -173,7 +208,13 @@ for epoch in range(EPOCHS):
 
         total_loss += loss.item()
 
-    print(f"Epoch {epoch+1}, Loss: {total_loss:.4f}")
+    num_batches = (len(dataset) + BATCH_SIZE - 1) // BATCH_SIZE
+    average_loss = total_loss / num_batches if num_batches else total_loss
+    print(f"Epoch {epoch+1}, Loss: {total_loss:.4f}, Avg: {average_loss:.4f}")
+
+    if average_loss < EXPORT_THRESHOLD:
+        export_model_to_onnx(model, ONNX_PATH)
+        break
 
 
 # =========================
