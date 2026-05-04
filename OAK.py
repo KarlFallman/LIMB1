@@ -252,7 +252,6 @@ while pipeline.isRunning():
                         frame_data = {
                             "shoulder": [fsx, fsy, fsz],
                             "elbow": [fex, fey, fez],
-                            "wrist": [fwx, fwy, fwz],
                             "hand": hand_keypoints
                         }
 
