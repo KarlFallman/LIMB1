@@ -4,6 +4,7 @@ import mediapipe as mp
 import numpy as np
 import json
 from kalman_filter import KalmanPointFilter
+from inverse_kinematics import calculate_arm_angles
 # -----------------------------
 # MediaPipe setup You need to install mediapipe with: pip install mediapipe==0.10.14 if you have Python 3.12
 # -----------------------------
@@ -247,6 +248,18 @@ while pipeline.isRunning():
                     print("-----")
                     print("Frame count:", frame_count)
                     print("-----")
+
+                    shoulder_point = [fsx, fsy, fsz]
+                    elbow_point = [fex, fey, fez]
+                    wrist_point = [fwx, fwy, fwz]
+
+                    angles = calculate_arm_angles(
+                        shoulder_point,
+                        elbow_point,
+                        wrist_point
+                    )
+
+                    print(angles)
 
                     if recording:
                         frame_data = {
