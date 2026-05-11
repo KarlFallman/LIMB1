@@ -4,7 +4,7 @@ import mediapipe as mp
 import numpy as np
 import json
 from kalman_filter import KalmanPointFilter
-from inverse_kinematics import calculate_arm_angles
+from inverse_kinematics import InverseKinematics
 # -----------------------------
 # MediaPipe setup You need to install mediapipe with: pip install mediapipe==0.10.14 if you have Python 3.12
 # -----------------------------
@@ -98,6 +98,8 @@ wrist_filter = KalmanPointFilter()
 elbow_filter = KalmanPointFilter()
 shoulder_filter = KalmanPointFilter()
 hand_filters = [KalmanPointFilter() for _ in range(21)]
+ik = InverseKinematics()
+ik.start()
 
 # -----------------------------
 # Main loop
@@ -228,7 +230,16 @@ while pipeline.isRunning():
                         wx, wy, wrist_z,
                         measurement_valid=wrist_z is not None
                     )   
-                
+                shoulder_point = [fsx, fsy, fsz]
+                elbow_point = [fex, fey, fez]
+                wrist_point = [fwx, fwy, fwz]
+
+                angles = ik.calculate_arm_angles(
+                    shoulder_point,
+                    elbow_point,
+                    wrist_point
+                )
+
                 if frame_count % modolu == 0:
                     print(json.dumps(hand_keypoints, indent=2))
                     if shoulder_depth is not None:
@@ -248,18 +259,8 @@ while pipeline.isRunning():
                     print("-----")
                     print("Frame count:", frame_count)
                     print("-----")
-
-                    shoulder_point = [fsx, fsy, fsz]
-                    elbow_point = [fex, fey, fez]
-                    wrist_point = [fwx, fwy, fwz]
-
-                    angles = calculate_arm_angles(
-                        shoulder_point,
-                        elbow_point,
-                        wrist_point
-                    )
-
-                    print(angles)
+                    if angles is not None:
+                        print("IK angles deg:", angles["q_deg"])
 
                     if recording:
                         frame_data = {
@@ -301,6 +302,7 @@ while pipeline.isRunning():
             print("Saved recording.json")
 
     if key == ord('q'):
+        ik.stop()
         break
 
 hands.close()
