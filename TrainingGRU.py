@@ -22,17 +22,19 @@ BATCH_SIZE = 32
 EPOCHS = 50
 LEARNING_RATE = 1e-3
 
-VAL_SPLIT = 0.2
-MIN_VAL_FILES = 1
+VAL_SPLIT = 0.4
+MIN_VAL_FILES = 2
 PATIENCE = 5
+EXPORT_THRESHOLD = 0.5   # justera senare (0.3–0.8 är vanligt)
+EXPORT_ONNX = True
 
 ONNX_PATH = "movement_gru.onnx"
 MODEL_PATH = "movement_gru_best.pth"
 
-SEED = 42
-random.seed(SEED)
-np.random.seed(SEED)
-torch.manual_seed(SEED)
+#SEED = 42
+#random.seed(SEED)
+#np.random.seed(SEED)
+#torch.manual_seed(SEED)
 
 
 # =========================
@@ -281,6 +283,10 @@ def main():
             user_files[user_id] = []
 
         user_files[user_id].append(file)
+    print("\nUsers found:")
+
+    for user_id, user_list in user_files.items():
+        print(user_id, len(user_list))
 
     train_files = []
     val_files = []
@@ -291,20 +297,20 @@ def main():
         val_count = max(
             MIN_VAL_FILES,
             int(len(user_list) * VAL_SPLIT)
-    )
-
-    if len(user_list) <= val_count:
-        raise ValueError(
-            f"User {user_id} has too few files ({len(user_list)})"
         )
 
-    val = user_list[:val_count]
-    train = user_list[val_count:]
+        if len(user_list) <= val_count:
+            raise ValueError(
+             f"User {user_id} has too few files ({len(user_list)})"
+            )
 
-    val_files.extend(val)
-    train_files.extend(train)
+        val = user_list[:val_count]
+        train = user_list[val_count:]
 
-    print(
+        val_files.extend(val)
+        train_files.extend(train)
+
+        print(
             f"User {user_id}: "
             f"{len(train)} train / {len(val)} val"
         )
@@ -373,7 +379,7 @@ def main():
                 MODEL_PATH
             )
 
-            export_model_to_onnx(model, device)
+            #export_model_to_onnx(model, device)
             print("Saved best model.")
 
         else:
