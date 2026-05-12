@@ -11,16 +11,16 @@ import torch.nn.functional as F
 # CONFIG
 # =========================
 INPUT_SIZE = 69
-HIDDEN_SIZE = 64
-EMBED_SIZE = 32
-MAX_SEQ_LEN = 26
+HIDDEN_SIZE = 128
+EMBED_SIZE = 64
+MAX_SEQ_LEN = 30
 
 MODEL_PATH = "movement_gru_best.pth"
 
 DATA_FOLDER = "Data"
 TEST_FOLDER = "Test"
 
-TEST_FILE = "test.json"   # filnamn inne i Test/
+TEST_FILE = "ID2test.json"   # filnamn inne i Test/
 
 
 # =========================

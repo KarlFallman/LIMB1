@@ -14,22 +14,24 @@ from torch.utils.data import Dataset
 # CONFIG
 # =========================
 INPUT_SIZE = 69
-HIDDEN_SIZE = 64
-EMBED_SIZE = 32
-MAX_SEQ_LEN = 26
+HIDDEN_SIZE = 128
+EMBED_SIZE = 64
+MAX_SEQ_LEN = 30
 
-BATCH_SIZE = 32
-EPOCHS = 50
-LEARNING_RATE = 1e-3
+BATCH_SIZE = 64
+EPOCHS = 250
+LEARNING_RATE = 5e-4
 
 VAL_SPLIT = 0.4
 MIN_VAL_FILES = 2
-PATIENCE = 5
-EXPORT_THRESHOLD = 0.5   # justera senare (0.3–0.8 är vanligt)
+PATIENCE = 50
+EXPORT_THRESHOLD = 0.3   # justera senare (0.3–0.8 är vanligt)
 EXPORT_ONNX = True
 
-ONNX_PATH = "movement_gru.onnx"
-MODEL_PATH = "movement_gru_best.pth"
+SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
+
+ONNX_PATH = os.path.join(SCRIPT_DIR, "movement_gru.onnx")
+MODEL_PATH = os.path.join(SCRIPT_DIR, "movement_gru_best.pth")
 
 #SEED = 42
 #random.seed(SEED)
@@ -340,6 +342,7 @@ def main():
 
     best_val_loss = float("inf")
     patience_counter = 0
+    onnx_exported = False
 
     # ---------------------
     # Epoch loop
@@ -382,6 +385,9 @@ def main():
             #export_model_to_onnx(model, device)
             print("Saved best model.")
 
+            if (EXPORT_ONNX and val_loss < EXPORT_THRESHOLD and not onnx_exported):
+                export_model_to_onnx(model, device)
+                onnx_exported = True
         else:
             patience_counter += 1
             print(
@@ -393,7 +399,7 @@ def main():
         if patience_counter >= PATIENCE:
             print("Early stopping triggered.")
             break
-
+    print(f"Best validation loss: {best_val_loss:.4f}")
 
 if __name__ == "__main__":
     main()
