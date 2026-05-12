@@ -54,7 +54,7 @@ p.connect(p.GUI)
 p.setGravity(0, 0, 0)
 p.setAdditionalSearchPath(str(sim_dir))
 
-base_orn = p.getQuaternionFromEuler([0, 0, 0])
+base_orn = p.getQuaternionFromEuler([0, 0, np.pi / 2])  # rotera så att armen pekar framåt
 
 robot = p.loadURDF(
     "arm/left_arm.urdf",
@@ -86,52 +86,36 @@ for i in range(-1, num_joints):
 # -----------------------------
 # Test pose
 # -----------------------------
-elbow = 0.8
-sh_flex = 0.0
-sh_abd = 0.0
-sh_rot = 0.0
+def set_pose(sh_rot=0, sh_flex=0, sh_abd=0, elbow=0):
+    p.resetJointState(robot, sh_rotz, -sh_abd)      #abduktion
+    p.resetJointState(robot, sh_roty, sh_flex)      #flexion
+    p.resetJointState(robot, sh_rotx, sh_rot)       #rotation
+    p.resetJointState(robot, elbow_roty, elbow)     #elbow
 
 for elbow in np.linspace(0.0, 1.05, 50):
-    p.resetJointState(robot, sh_rotz, 0.0)
-    p.resetJointState(robot, sh_roty, 0.0)
-    p.resetJointState(robot, sh_rotx, 0.0)
-    p.resetJointState(robot, elbow_roty, elbow) #Armbåge
+    set_pose(elbow=elbow)
 
     time.sleep(0.05)
 
 for sh_flex in np.linspace(0.0, 1.39, 50):
-    p.resetJointState(robot, sh_rotz, 0.0)
-    p.resetJointState(robot, sh_roty, sh_flex) #Axel Fram
-    p.resetJointState(robot, sh_rotx, 0.0)
-    p.resetJointState(robot, elbow_roty, elbow)
+    set_pose(sh_flex=sh_flex)
 
     time.sleep(0.05)
 
-for sh_abd in np.linspace(0.0, -0.69, 50):
-    p.resetJointState(robot, sh_rotz, sh_abd)
-    p.resetJointState(robot, sh_roty, sh_flex)
-    p.resetJointState(robot, sh_rotx, sh_rot) #roation
-    p.resetJointState(robot, elbow_roty, elbow)
-
+for sh_abd in np.linspace(0.0, 0.69, 50):
+    set_pose(sh_abd=sh_abd)  # böj utåt
+    
     time.sleep(0.05)
 
 for sh_rot in np.linspace(0.0, -0.69, 50):
-    p.resetJointState(robot, sh_rotz, sh_abd) #Axel sida inverterad?
-    p.resetJointState(robot, sh_roty, sh_flex)
-    p.resetJointState(robot, sh_rotx, sh_rot)
-    p.resetJointState(robot, elbow_roty, elbow)
-
+    set_pose(sh_rot=sh_rot)  # rotation
+   
     time.sleep(0.05)
 
 for sh_rot in np.linspace(-0.69, 0.69, 50):
-    p.resetJointState(robot, sh_rotz, sh_abd)
-    p.resetJointState(robot, sh_roty, sh_flex)
-    p.resetJointState(robot, sh_rotx, sh_rot)
-    p.resetJointState(robot, elbow_roty, elbow)
-
+    set_pose(sh_rot=sh_rot)
+    
     time.sleep(0.05)
-
-
 
 # -----------------------------
 # Keep window alive

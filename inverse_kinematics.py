@@ -29,6 +29,21 @@ class InverseKinematics:
 
         return p
 
+    def pixel_to_camera_3d(self, p, fx=615, fy=615, cx=320, cy=240):
+        if p is None:
+            return None
+
+        x, y, z = p
+
+        if z is None:
+            return None
+
+        X = (x - cx) * z / fx
+        Y = (y - cy) * z / fy
+        Z = z
+
+        return np.array([X, Y, Z], dtype=float)
+
     def _angle_between(self, v1, v2):
         norm1 = np.linalg.norm(v1)
         norm2 = np.linalg.norm(v2)
@@ -61,6 +76,13 @@ class InverseKinematics:
         shoulder = self._safe_point(shoulder)
         elbow = self._safe_point(elbow)
         wrist = self._safe_point(wrist)
+
+        if shoulder is None or elbow is None or wrist is None:
+            return None
+
+        shoulder = self.pixel_to_camera_3d(shoulder)
+        elbow = self.pixel_to_camera_3d(elbow)
+        wrist = self.pixel_to_camera_3d(wrist)
 
         if shoulder is None or elbow is None or wrist is None:
             return None
