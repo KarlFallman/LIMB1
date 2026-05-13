@@ -17,8 +17,8 @@ MAX_SEQ_LEN = 30
 
 MODEL_PATH = "movement_gru_best.pth"
 
-DATA_FOLDER = "Data"
-TEST_FOLDER = "Test"
+DATA_FOLDER = "Data/Training"   
+TEST_FOLDER = "Test/Training"
 
 TEST_FILE = "ID1test.json"   # filnamn inne i Test/
 

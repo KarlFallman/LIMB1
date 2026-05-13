@@ -14,8 +14,8 @@ ENGINE_PATH = "movement_gru.engine"
 INPUT_SHAPE = (1, 30, 69)
 OUTPUT_SHAPE = (1, 64)
 
-DATA_FOLDER = "Data"
-TEST_FOLDER = "Test"
+DATA_FOLDER = "Data/Training" #CHANGE TO REFERENCES LATER
+TEST_FOLDER = "Test/Training" #CHANGE TO FINAL LATER
 TEST_FILE = "ID1test.json"
 
 

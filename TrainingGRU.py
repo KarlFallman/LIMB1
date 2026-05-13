@@ -261,7 +261,7 @@ def main():
     print("Using device:", device)
 
     script_dir = os.path.dirname(os.path.abspath(__file__))
-    folder = os.path.join(script_dir, "Data")
+    folder = os.path.join(script_dir, "Data/Training")
     print("Current working directory:", os.getcwd())
     print("Script location:", os.path.dirname(os.path.abspath(__file__)))
     print("Folder path:", folder)
