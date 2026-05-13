@@ -1,26 +1,22 @@
 import os
 import json
 import numpy as np
-
-import torch
-import torch.nn as nn
-import torch.nn.functional as F
+import tensorrt as trt
+import pycuda.driver as cuda
+import pycuda.autoinit
 
 
 # =========================
 # CONFIG
 # =========================
-INPUT_SIZE = 69
-HIDDEN_SIZE = 128
-EMBED_SIZE = 64
-MAX_SEQ_LEN = 30
+ENGINE_PATH = "movement_gru.engine"
 
-MODEL_PATH = "movement_gru_best.pth"
+INPUT_SHAPE = (1, 30, 69)
+OUTPUT_SHAPE = (1, 64)
 
 DATA_FOLDER = "Data"
 TEST_FOLDER = "Test"
-
-TEST_FILE = "ID1test.json"   # filnamn inne i Test/
+TEST_FILE = "ID1test.json"
 
 
 # =========================
@@ -49,66 +45,87 @@ def load_sequence(path):
     with open(path, "r") as f:
         raw = json.load(f)
 
-    data = raw["data"]
-
-    seq = [frame_to_vector(frame) for frame in data]
-    seq = np.stack(seq)
-
-    return seq
+    seq = [frame_to_vector(frame) for frame in raw["data"]]
+    return np.stack(seq)
 
 
-def prepare_sequence(seq):
-    seq = seq[:MAX_SEQ_LEN]
+def prepare_sequence(seq, target_len=30):
+    seq = seq[:target_len]
 
-    if len(seq) < MAX_SEQ_LEN:
-        pad_len = MAX_SEQ_LEN - len(seq)
-        pad = np.zeros((pad_len, seq.shape[1]))
+    if len(seq) < target_len:
+        pad = np.zeros(
+            (target_len - len(seq), seq.shape[1]),
+            dtype=np.float32
+        )
         seq = np.vstack([seq, pad])
 
     return seq
 
 
 # =========================
-# MODEL
+# TENSORRT
 # =========================
-class MovementGRU(nn.Module):
-    def __init__(self):
-        super().__init__()
+class TRTInference:
+    def __init__(self, engine_path):
+        logger = trt.Logger(trt.Logger.WARNING)
 
-        self.gru = nn.GRU(
-            INPUT_SIZE,
-            HIDDEN_SIZE,
-            batch_first=True
+        with open(engine_path, "rb") as f:
+            runtime = trt.Runtime(logger)
+            self.engine = runtime.deserialize_cuda_engine(
+                f.read()
+            )
+
+        self.context = self.engine.create_execution_context()
+
+        self.input_size = int(
+            np.prod(INPUT_SHAPE) * np.float32().nbytes
+        )
+        self.output_size = int(
+            np.prod(OUTPUT_SHAPE) * np.float32().nbytes
         )
 
-        self.fc = nn.Linear(
-            HIDDEN_SIZE,
-            EMBED_SIZE
+        self.d_input = cuda.mem_alloc(self.input_size)
+        self.d_output = cuda.mem_alloc(self.output_size)
+
+        self.stream = cuda.Stream()
+
+    def infer(self, input_array):
+        output = np.empty(OUTPUT_SHAPE, dtype=np.float32)
+
+        cuda.memcpy_htod_async(
+            self.d_input,
+            input_array.astype(np.float32),
+            self.stream
         )
 
-    def forward(self, x):
-        out, _ = self.gru(x)
-        out = out[:, -1, :]
-        emb = self.fc(out)
-        return F.normalize(emb, dim=1)
+        bindings = [int(self.d_input), int(self.d_output)]
+
+        self.context.execute_async_v2(
+            bindings=bindings,
+            stream_handle=self.stream.handle
+        )
+
+        cuda.memcpy_dtoh_async(
+            output,
+            self.d_output,
+            self.stream
+        )
+
+        self.stream.synchronize()
+
+        return output[0]
 
 
 # =========================
 # EMBEDDING
 # =========================
-def get_embedding(model, file_path, device):
+def get_embedding(trt_model, file_path):
     seq = load_sequence(file_path)
     seq = prepare_sequence(seq)
 
-    tensor = torch.tensor(
-        seq,
-        dtype=torch.float32
-    ).unsqueeze(0).to(device)
+    input_data = np.expand_dims(seq, axis=0).astype(np.float32)
 
-    with torch.no_grad():
-        emb = model(tensor)
-
-    return emb.cpu().numpy()[0]
+    return trt_model.infer(input_data)
 
 
 def distance(a, b):
@@ -118,7 +135,7 @@ def distance(a, b):
 # =========================
 # BUILD REFERENCES
 # =========================
-def build_references(model, device):
+def build_references(trt_model):
     references = {}
 
     for file in os.listdir(DATA_FOLDER):
@@ -145,7 +162,7 @@ def build_references(model, device):
         embeddings = []
 
         for file_path in files:
-            emb = get_embedding(model, file_path, device)
+            emb = get_embedding(trt_model, file_path)
             embeddings.append(emb)
 
         mean_embedding = np.mean(embeddings, axis=0)
@@ -162,22 +179,21 @@ def build_references(model, device):
 # =========================
 # PREDICT
 # =========================
-def predict(model, device):
-    references = build_references(model, device)
+def predict(trt_model):
+    references = build_references(trt_model)
 
     test_path = os.path.join(TEST_FOLDER, TEST_FILE)
 
     if not os.path.exists(test_path):
         raise FileNotFoundError(
-            f"Could not find test file: {test_path}"
+            f"Missing test file: {test_path}"
         )
 
-    print(f"\nTesting file: {test_path}\n")
+    print(f"\nTesting: {test_path}\n")
 
     test_embedding = get_embedding(
-        model,
-        test_path,
-        device
+        trt_model,
+        test_path
     )
 
     best_user = None
@@ -201,19 +217,8 @@ def predict(model, device):
 # MAIN
 # =========================
 def main():
-    device = torch.device(
-        "cuda" if torch.cuda.is_available() else "cpu"
-    )
-
-    model = MovementGRU().to(device)
-
-    model.load_state_dict(
-        torch.load(MODEL_PATH, map_location=device)
-    )
-
-    model.eval()
-
-    predict(model, device)
+    trt_model = TRTInference(ENGINE_PATH)
+    predict(trt_model)
 
 
 if __name__ == "__main__":
