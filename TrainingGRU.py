@@ -25,18 +25,13 @@ LEARNING_RATE = 5e-4
 VAL_SPLIT = 0.4
 MIN_VAL_FILES = 2
 PATIENCE = 50
-EXPORT_THRESHOLD = 0.3   # justera senare (0.3–0.8 är vanligt)
+EXPORT_THRESHOLD = 0.2
 EXPORT_ONNX = True
 
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 
 ONNX_PATH = os.path.join(SCRIPT_DIR, "movement_gru.onnx")
 MODEL_PATH = os.path.join(SCRIPT_DIR, "movement_gru_best.pth")
-
-#SEED = 42
-#random.seed(SEED)
-#np.random.seed(SEED)
-#torch.manual_seed(SEED)
 
 
 # =========================
@@ -222,6 +217,9 @@ def run_epoch(model, dataset, optimizer, criterion, device, training=True):
         model.eval()
 
     total_loss = 0
+    total_pos = 0
+    total_neg = 0
+    num_batches = 0
 
     with torch.set_grad_enabled(training):
         for i in range(0, len(dataset), BATCH_SIZE):
@@ -238,6 +236,9 @@ def run_epoch(model, dataset, optimizer, criterion, device, training=True):
             p = model(positive)
             n = model(negative)
 
+            pos_dist = torch.norm(a - p, dim=1).mean().item()
+            neg_dist = torch.norm(a - n, dim=1).mean().item()
+
             loss = criterion(a, p, n)
 
             if training:
@@ -246,9 +247,15 @@ def run_epoch(model, dataset, optimizer, criterion, device, training=True):
                 optimizer.step()
 
             total_loss += loss.item()
+            total_pos += pos_dist
+            total_neg += neg_dist
+            num_batches += 1
 
-    num_batches = max(1, (len(dataset) + BATCH_SIZE - 1) // BATCH_SIZE)
-    return total_loss / num_batches
+    avg_loss = total_loss / num_batches
+    avg_pos = total_pos / num_batches
+    avg_neg = total_neg / num_batches
+
+    return avg_loss, avg_pos, avg_neg
 
 
 # =========================
@@ -260,17 +267,15 @@ def main():
     )
     print("Using device:", device)
 
-    script_dir = os.path.dirname(os.path.abspath(__file__))
-    folder = os.path.join(script_dir, "Data/Training")
+    folder = os.path.join(SCRIPT_DIR, "Data/Training")
+
     print("Current working directory:", os.getcwd())
-    print("Script location:", os.path.dirname(os.path.abspath(__file__)))
+    print("Script location:", SCRIPT_DIR)
     print("Folder path:", folder)
     print("Folder exists:", os.path.exists(folder))
+
     files = [f for f in os.listdir(folder) if f.endswith(".json")]
 
-    # ---------------------
-    # Split per user
-    # ---------------------
     user_files = {}
 
     for file in files:
@@ -285,8 +290,8 @@ def main():
             user_files[user_id] = []
 
         user_files[user_id].append(file)
-    print("\nUsers found:")
 
+    print("\nUsers found:")
     for user_id, user_list in user_files.items():
         print(user_id, len(user_list))
 
@@ -303,7 +308,7 @@ def main():
 
         if len(user_list) <= val_count:
             raise ValueError(
-             f"User {user_id} has too few files ({len(user_list)})"
+                f"User {user_id} has too few files ({len(user_list)})"
             )
 
         val = user_list[:val_count]
@@ -320,9 +325,6 @@ def main():
     print(f"Total train files: {len(train_files)}")
     print(f"Total val files: {len(val_files)}")
 
-    # ---------------------
-    # Datasets
-    # ---------------------
     train_dataset = TripletDataset(
         MovementDataset(folder, train_files)
     )
@@ -338,17 +340,17 @@ def main():
         lr=LEARNING_RATE
     )
 
-    criterion = nn.TripletMarginLoss(margin=1.0)
+    criterion = nn.TripletMarginLoss(margin=0.5)
 
     best_val_loss = float("inf")
+    best_pos = None
+    best_neg = None
+
     patience_counter = 0
     onnx_exported = False
 
-    # ---------------------
-    # Epoch loop
-    # ---------------------
     for epoch in range(EPOCHS):
-        train_loss = run_epoch(
+        train_loss, train_pos, train_neg = run_epoch(
             model,
             train_dataset,
             optimizer,
@@ -357,7 +359,7 @@ def main():
             training=True
         )
 
-        val_loss = run_epoch(
+        val_loss, val_pos, val_neg = run_epoch(
             model,
             val_dataset,
             optimizer,
@@ -369,25 +371,28 @@ def main():
         print(
             f"Epoch {epoch+1}/{EPOCHS} | "
             f"Train: {train_loss:.4f} | "
-            f"Val: {val_loss:.4f}"
+            f"Val: {val_loss:.4f} | "
+            f"Val Pos: {val_pos:.4f} | "
+            f"Val Neg: {val_neg:.4f}"
         )
 
-        # Save best model
         if val_loss < best_val_loss:
             best_val_loss = val_loss
+            best_pos = val_pos
+            best_neg = val_neg
             patience_counter = 0
 
-            torch.save(
-                model.state_dict(),
-                MODEL_PATH
-            )
-
-            #export_model_to_onnx(model, device)
+            torch.save(model.state_dict(), MODEL_PATH)
             print("Saved best model.")
 
-            if (EXPORT_ONNX and val_loss < EXPORT_THRESHOLD and not onnx_exported):
+            if (
+                EXPORT_ONNX
+                and val_loss < EXPORT_THRESHOLD
+                and not onnx_exported
+            ):
                 export_model_to_onnx(model, device)
                 onnx_exported = True
+
         else:
             patience_counter += 1
             print(
@@ -395,11 +400,15 @@ def main():
                 f"({patience_counter}/{PATIENCE})"
             )
 
-        # Early stopping
         if patience_counter >= PATIENCE:
             print("Early stopping triggered.")
             break
+
+    print("\n===== FINAL BEST MODEL =====")
     print(f"Best validation loss: {best_val_loss:.4f}")
+    print(f"Best positive distance: {best_pos:.4f}")
+    print(f"Best negative distance: {best_neg:.4f}")
+
 
 if __name__ == "__main__":
     main()
