@@ -16,7 +16,7 @@ from torch.utils.data import Dataset
 INPUT_SIZE = 69
 HIDDEN_SIZE = 128
 EMBED_SIZE = 64
-MAX_SEQ_LEN = 100
+MAX_SEQ_LEN = 30
 
 BATCH_SIZE = 64
 EPOCHS = 250

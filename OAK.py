@@ -110,7 +110,7 @@ while pipeline.isRunning():
     hand_keypoints = []
     frame_in = video_queue.get()
     frame = frame_in.getCvFrame()
-    modolu = 10
+    modolu = 5
 
     depth_in = depth_queue.tryGet()
     depth_frame = None
@@ -294,7 +294,7 @@ while pipeline.isRunning():
         if not recording:
             with open("recording.json", "w") as f:
                 output = {
-                    "user_id": 1,
+                    "user_id": 11,
                     "sequence": len(recorded_data),
                     "data": recorded_data
                 }  
