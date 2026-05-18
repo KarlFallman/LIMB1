@@ -97,6 +97,7 @@ def valid_depth(depth_mm):
 # PyBullet setup
 # -----------------------------
 
+
 def joint_index(body_uid, joint_name):
     for i in range(p.getNumJoints(body_uid)):
         info = p.getJointInfo(body_uid, i)
@@ -109,10 +110,16 @@ def joint_index(body_uid, joint_name):
 def set_pose(robot, sh_rotz, sh_roty, sh_rotx, elbow_roty,
              sh_rot=0.0, sh_flex=0.0, sh_abd=0.0, elbow=0.0):
 
+    ROBOT_ELBOW_MAX = 1.05  # ca 60 grader i radianer
+
+    ELBOW_GAIN = 1.5
+
+    elbow = np.clip(elbow * ELBOW_GAIN, 0.0, ROBOT_ELBOW_MAX)
+
     p.resetJointState(robot, sh_rotz, -sh_abd)
     p.resetJointState(robot, sh_roty, -sh_flex)
     p.resetJointState(robot, sh_rotx, sh_rot)
-    p.resetJointState(robot, elbow_roty, elbow)
+    p.resetJointState(robot, elbow_roty, ROBOT_ELBOW_MAX - elbow)
 
 
 p.connect(p.GUI)
@@ -295,7 +302,6 @@ while pipeline.isRunning():
                         q_robot = q_human.copy()
                     
                     q_robot = clamp_dmp_vector(q_robot)
-
                     set_pose(
                         robot,
                         sh_rotz,
@@ -303,8 +309,8 @@ while pipeline.isRunning():
                         sh_rotx,
                         elbow_roty,
                         elbow=float(q_robot[0]),
-                        sh_flex=float(q_robot[1]),
-                        sh_abd=float(q_robot[2]),
+                        sh_flex=0.0,    #float(q_robot[1]),
+                        sh_abd=0.0,    #float(q_robot[2]),
                         sh_rot=0.0,
                         #sh_rot=float(q_robot[3]),
                     )

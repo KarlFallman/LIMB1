@@ -101,13 +101,31 @@ class InverseKinematics:
             return None
 
         elbow_flexion = np.pi - raw_elbow_angle
-        HUMAN_ELBOW_MAX = np.radians(120)
-        ROBOT_ELBOW_MAX = np.radians(60)
-
-        elbow_flexion = np.clip(elbow_flexion, 0, HUMAN_ELBOW_MAX)
-        elbow_flexion = elbow_flexion / HUMAN_ELBOW_MAX * ROBOT_ELBOW_MAX
-        #print("raw elbow deg:", np.degrees(elbow_flexion))
         
+        # Human elbow calibration
+        HUMAN_ELBOW_START = np.radians(90)    # robot börjar röra sig här
+        HUMAN_ELBOW_MAX = np.radians(150)     # ungefär max böjning ni vill använda
+        ROBOT_ELBOW_MAX = np.radians(60)      # robotens max
+
+        # Rå mänsklig elbow-vinkel
+        human_elbow = elbow_flexion
+
+        # Ta bort offset
+        human_elbow = human_elbow - HUMAN_ELBOW_START
+
+        # Begränsa till 0 → usable range
+        human_elbow = np.clip(
+            human_elbow,
+            0.0,
+            HUMAN_ELBOW_MAX - HUMAN_ELBOW_START
+        )
+
+        # Mappa till robotens 0 → 60°
+        elbow_flexion = (
+            human_elbow /
+            (HUMAN_ELBOW_MAX - HUMAN_ELBOW_START)
+        ) * ROBOT_ELBOW_MAX
+
         # -----------------------------
         # 2. Shoulder flexion
         # -----------------------------
