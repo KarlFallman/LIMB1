@@ -17,6 +17,7 @@ OUTPUT_SHAPE = (1, 64)
 DATA_FOLDER = "Data/Training" #CHANGE TO REFERENCES LATER
 TEST_FOLDER = "Test/Training" #CHANGE TO FINAL LATER
 TEST_FILE = "ID1test.json"
+UNKNOWN_THRESHOLD = 0.5
 
 
 # =========================
@@ -210,7 +211,10 @@ def predict(trt_model):
             best_distance = d
             best_user = user_id
 
-    print(f"\nPrediction: User {best_user}")
+    if best_distance > UNKNOWN_THRESHOLD:
+        print("\nPrediction: Unknown User")
+    else:
+        print(f"\nPrediction: User {best_user}")
 
 
 # =========================
