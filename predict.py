@@ -14,7 +14,7 @@ INPUT_SIZE = 69
 HIDDEN_SIZE = 128
 EMBED_SIZE = 64
 MAX_SEQ_LEN = 30
-
+UNKNOWN_THRESHOLD = 0.5
 MODEL_PATH = "movement_gru_best.pth"
 
 DATA_FOLDER = "Data/Training"   
@@ -194,7 +194,11 @@ def predict(model, device):
             best_distance = d
             best_user = user_id
 
-    print(f"\nPrediction: User {best_user}")
+    
+    if best_distance > UNKNOWN_THRESHOLD:
+        print("\nPrediction: Unknown User")
+    else:
+        print(f"\nPrediction: User {best_user}")
 
 
 # =========================
