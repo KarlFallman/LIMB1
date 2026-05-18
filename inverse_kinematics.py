@@ -101,7 +101,13 @@ class InverseKinematics:
             return None
 
         elbow_flexion = np.pi - raw_elbow_angle
+        HUMAN_ELBOW_MAX = np.radians(120)
+        ROBOT_ELBOW_MAX = np.radians(60)
 
+        elbow_flexion = np.clip(elbow_flexion, 0, HUMAN_ELBOW_MAX)
+        elbow_flexion = elbow_flexion / HUMAN_ELBOW_MAX * ROBOT_ELBOW_MAX
+        #print("raw elbow deg:", np.degrees(elbow_flexion))
+        
         # -----------------------------
         # 2. Shoulder flexion
         # -----------------------------

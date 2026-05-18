@@ -29,7 +29,7 @@ def set_pose(robot, sh_rotz, sh_roty, sh_rotx, elbow_roty,
 # -----------------------------
 # Load recording
 # -----------------------------
-with open("Data/ID1run4.json", "r") as f:
+with open("Data/Training/ID1run4.json", "r") as f:
     recording = json.load(f)
 
 frames = recording["data"]
