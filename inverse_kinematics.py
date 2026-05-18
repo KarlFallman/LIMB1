@@ -39,7 +39,7 @@ class InverseKinematics:
             return None
 
         X = (x - cx) * z / fx
-        Y = (y - cy) * z / fy
+        Y = -(y - cy) * z / fy
         Z = z
 
         return np.array([X, Y, Z], dtype=float)

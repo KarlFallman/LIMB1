@@ -110,7 +110,7 @@ while pipeline.isRunning():
     hand_keypoints = []
     frame_in = video_queue.get()
     frame = frame_in.getCvFrame()
-    modolu = 10
+    modolu = 5
 
     depth_in = depth_queue.tryGet()
     depth_frame = None
