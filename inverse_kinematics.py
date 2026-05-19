@@ -197,11 +197,12 @@ class InverseKinematics:
                 upper_arm_dir
             )
 
-            SHOULDER_FLEX_DEADZONE = np.radians(5)
-            if shoulder_flexion < SHOULDER_FLEX_DEADZONE:
-                shoulder_flexion = 0.0
         else:
             shoulder_flexion = np.arctan2(-uy, abs(uz) + 1e-6)
+        
+        SHOULDER_FLEX_DEADZONE = np.radians(5)
+        if shoulder_flexion < SHOULDER_FLEX_DEADZONE:
+            shoulder_flexion = 0.0
 
         SHOULDER_FLEX_MAX = np.radians(80)
         shoulder_flexion = np.clip(shoulder_flexion, 0.0, SHOULDER_FLEX_MAX)
