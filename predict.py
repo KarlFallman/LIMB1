@@ -16,10 +16,10 @@ MAX_SEQ_LEN = 60
 UNKNOWN_THRESHOLD = 0.5
 MODEL_PATH = "movement_gru_best.pth"
 
-DATA_FOLDER = "Data/Training"
-TEST_FOLDER = "Test/Training"
+DATA_FOLDER = "Data/References"
+TEST_FOLDER = "Test/Final"
 
-TEST_FILE = "ID3test.json"
+TEST_FILE = "ID16test.json"
 
 
 # =========================

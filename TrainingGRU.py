@@ -282,7 +282,44 @@ def run_epoch(model, dataset, optimizer, criterion, device, training=True):
 
     return avg_loss, avg_pos, avg_neg
 
+def compute_top1_accuracy(model, dataset, device):
+    model.eval()
 
+    correct = 0
+    total = 0
+
+    # bygg embeddings för alla users i val-set
+    all_samples = dataset.data
+
+    with torch.no_grad():
+        for i in range(len(all_samples)):
+            anchor, true_user = all_samples[i]
+
+            anchor_tensor = torch.tensor(anchor, dtype=torch.float32).unsqueeze(0).to(device)
+            anchor_emb = model(anchor_tensor).cpu().numpy()[0]
+
+            best_user = None
+            best_dist = float("inf")
+
+            # jämför mot alla andra samples (enkelt men fungerar för din setup)
+            for j in range(len(all_samples)):
+                ref, ref_user = all_samples[j]
+
+                ref_tensor = torch.tensor(ref, dtype=torch.float32).unsqueeze(0).to(device)
+                ref_emb = model(ref_tensor).cpu().numpy()[0]
+
+                dist = np.linalg.norm(anchor_emb - ref_emb)
+
+                if dist < best_dist:
+                    best_dist = dist
+                    best_user = ref_user
+
+            if best_user == true_user:
+                correct += 1
+
+            total += 1
+
+    return correct / total
 # =========================
 # TRAIN
 # =========================
@@ -331,7 +368,7 @@ def main():
     model = MovementGRU().to(device)
 
     optimizer = optim.Adam(model.parameters(), lr=LEARNING_RATE)
-    criterion = nn.TripletMarginLoss(margin=0.5)
+    criterion = nn.TripletMarginLoss(margin=0.4)
 
     best_val_loss = float("inf")
     patience_counter = 0
