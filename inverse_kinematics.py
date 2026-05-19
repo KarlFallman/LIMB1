@@ -9,7 +9,12 @@ except ImportError:
 class InverseKinematics:
     def __init__(self):
         self.running = False
+        # Initiala offsets för kalibrering Elbow
         self.elbow_zero_offset = 0.0
+
+        # Initiala offset för kalibrering Shoulder flexion
+        self.upper_arm_neutral = None
+        self.shoulder_flex_direction = None
 
     def start(self):
         self.running = True
@@ -57,10 +62,57 @@ class InverseKinematics:
 
         return float(np.arccos(cos_angle))
     
+    #-----------------------------
+    # Kalibreringsmetoder
+    #-----------------------------
+    
     def calibrate_elbow_zero(self, elbow_angle):
         if elbow_angle is not None:
             self.elbow_zero_offset = elbow_angle
             print("Elbow zero calibrated:", np.degrees(elbow_angle), "deg")
+
+    def calibrate_upper_arm_neutral(self, shoulder, elbow):
+        shoulder = self.pixel_to_camera_3d(self._safe_point(shoulder))
+        elbow = self.pixel_to_camera_3d(self._safe_point(elbow))
+
+        if shoulder is None or elbow is None:
+            return
+
+        v = elbow - shoulder
+        norm = np.linalg.norm(v)
+
+        if norm == 0:
+            return
+
+        self.upper_arm_neutral = v / norm
+        print("Upper arm neutral calibrated")
+
+    def calibrate_shoulder_flex_direction(self, shoulder, elbow):
+        shoulder = self.pixel_to_camera_3d(self._safe_point(shoulder))
+        elbow = self.pixel_to_camera_3d(self._safe_point(elbow))
+
+        if shoulder is None or elbow is None or self.upper_arm_neutral is None:
+            return
+
+        v = elbow - shoulder
+        norm = np.linalg.norm(v)
+
+        if norm == 0:
+            return
+
+        current_dir = v / norm
+        direction = current_dir - self.upper_arm_neutral
+
+        direction_norm = np.linalg.norm(direction)
+        if direction_norm == 0:
+            return
+
+        self.shoulder_flex_direction = direction / direction_norm
+        print("Shoulder flex direction calibrated")
+
+    #-----------------------------
+    # Huvudmetod för att beräkna armvinklar
+    #----------------------------- 
 
     def calculate_arm_angles(self, shoulder, elbow, wrist):
         """
@@ -106,8 +158,6 @@ class InverseKinematics:
         if raw_elbow_angle is None:
             return None
 
-        # Rak arm = 0 grader
-        # Böjd arm = större vinkel
         elbow_flexion = raw_elbow_angle
 
         elbow_flexion = elbow_flexion - self.elbow_zero_offset
@@ -119,7 +169,7 @@ class InverseKinematics:
         if elbow_flexion < ELBOW_DEADZONE:
             elbow_flexion = 0.0
 
-        # Robotens max är 60 grader
+        # Elbow max är 60 grader
         ROBOT_ELBOW_MAX = np.radians(60)
 
         elbow_flexion = np.clip(
@@ -136,10 +186,25 @@ class InverseKinematics:
         # Arm rakt fram = större vinkel
         # min 0, max 80 grader
         # OBS: första approximation.
-        
+
         ux, uy, uz = upper_arm
 
-        shoulder_flexion = np.arctan2(-uy, abs(uz) + 1e-6)
+        upper_arm_dir = upper_arm / (np.linalg.norm(upper_arm) + 1e-6)
+
+        if self.upper_arm_neutral is not None:
+            shoulder_flexion = self._angle_between(
+                self.upper_arm_neutral,
+                upper_arm_dir
+            )
+
+            SHOULDER_FLEX_DEADZONE = np.radians(5)
+            if shoulder_flexion < SHOULDER_FLEX_DEADZONE:
+                shoulder_flexion = 0.0
+        else:
+            shoulder_flexion = np.arctan2(-uy, abs(uz) + 1e-6)
+
+        SHOULDER_FLEX_MAX = np.radians(80)
+        shoulder_flexion = np.clip(shoulder_flexion, 0.0, SHOULDER_FLEX_MAX)
 
         # -----------------------------
         # 3. Shoulder abduction
