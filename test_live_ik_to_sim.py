@@ -119,7 +119,7 @@ def set_pose(robot, sh_rotz, sh_roty, sh_rotx, elbow_roty,
     p.resetJointState(robot, sh_rotz, -sh_abd)
     p.resetJointState(robot, sh_roty, -sh_flex)
     p.resetJointState(robot, sh_rotx, sh_rot)
-    p.resetJointState(robot, elbow_roty, ROBOT_ELBOW_MAX - elbow)
+    p.resetJointState(robot, elbow_roty, elbow)
 
 
 p.connect(p.GUI)
@@ -155,6 +155,10 @@ ik.start()
 
 neutral_offset = None
 q_human = None
+
+prev_q_robot = None
+ANGLE_ALPHA = 0.25  # lägre = mjukare men mer latency
+
 # -----------------------------
 # Main loop
 # -----------------------------
@@ -302,20 +306,30 @@ while pipeline.isRunning():
                         q_robot = q_human.copy()
                     
                     q_robot = clamp_dmp_vector(q_robot)
+
+                    if prev_q_robot is None:
+                        q_smooth = q_robot
+                    else:
+                        q_smooth = ANGLE_ALPHA * q_robot + (1 - ANGLE_ALPHA) * prev_q_robot
+
+                    prev_q_robot = q_smooth
+                    q_robot = q_smooth
+
                     set_pose(
                         robot,
                         sh_rotz,
                         sh_roty,
                         sh_rotx,
                         elbow_roty,
-                        elbow=float(q_robot[0]),
-                        sh_flex=0.0,    #float(q_robot[1]),
+                        elbow=0.0,          #float(q_robot[0]),
+                        sh_flex=float(q_robot[1]),
                         sh_abd=0.0,    #float(q_robot[2]),
                         sh_rot=0.0,
                         #sh_rot=float(q_robot[3]),
                     )
 
                     p.stepSimulation()
+                    print("shoulder flex deg:", np.degrees(q_robot[1]))
 
 
                 if frame_count % modolu == 0:
@@ -381,9 +395,18 @@ while pipeline.isRunning():
 
     if key == ord('c'):
         if q_human is not None:
+
+            # Kalibrera hela neutralposen
             neutral_offset = q_human.copy()
+
+            # Kalibrera elbow-zero separat
+            ik.calibrate_elbow_zero(
+                angles["elbow_flexion_rad"]
+            )
+
             print("Neutral pose calibrated")
             print("Offset deg:", np.degrees(neutral_offset))
+
         else:
             print("No IK angle available for calibration")
 

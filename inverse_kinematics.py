@@ -9,6 +9,7 @@ except ImportError:
 class InverseKinematics:
     def __init__(self):
         self.running = False
+        self.elbow_zero_offset = 0.0
 
     def start(self):
         self.running = True
@@ -55,6 +56,11 @@ class InverseKinematics:
         cos_angle = np.clip(cos_angle, -1.0, 1.0)
 
         return float(np.arccos(cos_angle))
+    
+    def calibrate_elbow_zero(self, elbow_angle):
+        if elbow_angle is not None:
+            self.elbow_zero_offset = elbow_angle
+            print("Elbow zero calibrated:", np.degrees(elbow_angle), "deg")
 
     def calculate_arm_angles(self, shoulder, elbow, wrist):
         """
@@ -100,37 +106,37 @@ class InverseKinematics:
         if raw_elbow_angle is None:
             return None
 
-        elbow_flexion = np.pi - raw_elbow_angle
-        
-        # Human elbow calibration
-        HUMAN_ELBOW_START = np.radians(90)    # robot börjar röra sig här
-        HUMAN_ELBOW_MAX = np.radians(150)     # ungefär max böjning ni vill använda
-        ROBOT_ELBOW_MAX = np.radians(60)      # robotens max
+        # Rak arm = 0 grader
+        # Böjd arm = större vinkel
+        elbow_flexion = raw_elbow_angle
 
-        # Rå mänsklig elbow-vinkel
-        human_elbow = elbow_flexion
+        elbow_flexion = elbow_flexion - self.elbow_zero_offset
+        elbow_flexion = max(0.0, elbow_flexion)
 
-        # Ta bort offset
-        human_elbow = human_elbow - HUMAN_ELBOW_START
+        # Inför en "deadzone" för att undvika små rörelser när armen är nästan rak.
+        ELBOW_DEADZONE = np.radians(5)
 
-        # Begränsa till 0 → usable range
-        human_elbow = np.clip(
-            human_elbow,
+        if elbow_flexion < ELBOW_DEADZONE:
+            elbow_flexion = 0.0
+
+        # Robotens max är 60 grader
+        ROBOT_ELBOW_MAX = np.radians(60)
+
+        elbow_flexion = np.clip(
+            elbow_flexion,
             0.0,
-            HUMAN_ELBOW_MAX - HUMAN_ELBOW_START
+            ROBOT_ELBOW_MAX
         )
-
-        # Mappa till robotens 0 → 60°
-        elbow_flexion = (
-            human_elbow /
-            (HUMAN_ELBOW_MAX - HUMAN_ELBOW_START)
-        ) * ROBOT_ELBOW_MAX
-
+        
         # -----------------------------
         # 2. Shoulder flexion
         # -----------------------------
         # Baserat på hur mycket överarmen går fram/upp i bildplanet.
+        # Arm rakt ner = 0 grader
+        # Arm rakt fram = större vinkel
+        # min 0, max 80 grader
         # OBS: första approximation.
+        
         ux, uy, uz = upper_arm
 
         shoulder_flexion = np.arctan2(-uy, abs(uz) + 1e-6)
