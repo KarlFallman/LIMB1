@@ -4,7 +4,6 @@ import numpy as np
 
 import torch
 import torch.nn as nn
-import torch.nn.functional as F
 
 
 # =========================
@@ -12,15 +11,15 @@ import torch.nn.functional as F
 # =========================
 INPUT_SIZE = 69
 HIDDEN_SIZE = 128
-EMBED_SIZE = 64
-MAX_SEQ_LEN = 30
+EMBED_SIZE = 32
+MAX_SEQ_LEN = 60
 UNKNOWN_THRESHOLD = 0.5
 MODEL_PATH = "movement_gru_best.pth"
 
-DATA_FOLDER = "Data/Training"   
+DATA_FOLDER = "Data/Training"
 TEST_FOLDER = "Test/Training"
 
-TEST_FILE = "ID2test.json"   # filnamn inne i Test/
+TEST_FILE = "ID3test.json"
 
 
 # =========================
@@ -57,15 +56,35 @@ def load_sequence(path):
     return seq
 
 
-def prepare_sequence(seq):
-    seq = seq[:MAX_SEQ_LEN]
+# =========================
+# SAME AS TRAINING
+# =========================
+def split_sequence(seq, seq_len):
+    seq_len = min(seq_len, MAX_SEQ_LEN)
 
-    if len(seq) < MAX_SEQ_LEN:
-        pad_len = MAX_SEQ_LEN - len(seq)
+    if len(seq) < seq_len:
+        pad_len = seq_len - len(seq)
         pad = np.zeros((pad_len, seq.shape[1]))
         seq = np.vstack([seq, pad])
 
-    return seq
+    chunks = []
+
+    for i in range(0, len(seq), seq_len):
+        chunk = seq[i:i + seq_len]
+
+        if len(chunk) < MAX_SEQ_LEN:
+            pad_len = MAX_SEQ_LEN - len(chunk)
+            pad = np.zeros((pad_len, seq.shape[1]))
+            chunk = np.vstack([chunk, pad])
+
+        chunks.append(chunk)
+
+    return chunks
+
+
+def prepare_sequence(seq):
+    chunks = split_sequence(seq, len(seq))
+    return chunks[0]
 
 
 # =========================
@@ -88,9 +107,9 @@ class MovementGRU(nn.Module):
 
     def forward(self, x):
         out, _ = self.gru(x)
-        out = out[:, -1, :]
+        out = out.mean(dim=1)
         emb = self.fc(out)
-        return F.normalize(emb, dim=1)
+        return emb
 
 
 # =========================
@@ -98,17 +117,22 @@ class MovementGRU(nn.Module):
 # =========================
 def get_embedding(model, file_path, device):
     seq = load_sequence(file_path)
-    seq = prepare_sequence(seq)
+    chunks = split_sequence(seq, len(seq))
 
-    tensor = torch.tensor(
-        seq,
-        dtype=torch.float32
-    ).unsqueeze(0).to(device)
+    embeddings = []
 
-    with torch.no_grad():
-        emb = model(tensor)
+    for chunk in chunks:
+        tensor = torch.tensor(
+            chunk,
+            dtype=torch.float32
+        ).unsqueeze(0).to(device)
 
-    return emb.cpu().numpy()[0]
+        with torch.no_grad():
+            emb = model(tensor)
+
+        embeddings.append(emb.cpu().numpy()[0])
+
+    return np.mean(embeddings, axis=0)
 
 
 def distance(a, b):
@@ -182,19 +206,32 @@ def predict(model, device):
 
     best_user = None
     best_distance = float("inf")
+    all_distances = {}
 
     print("Distances:")
 
     for user_id, ref_embedding in references.items():
         d = distance(test_embedding, ref_embedding)
+        all_distances[user_id] = d
 
-        print(f"User {user_id}: {d:.4f}")
+        print(f"User {user_id}: {d:.10f}")
 
         if d < best_distance:
             best_distance = d
             best_user = user_id
 
-    
+    sorted_distances = sorted(
+        all_distances.items(),
+        key=lambda x: x[1]
+    )
+
+    best = sorted_distances[0]
+    second = sorted_distances[1]
+
+    print(f"\nBest match: User {best[0]} ({best[1]:.10f})")
+    print(f"Second best: User {second[0]} ({second[1]:.10f})")
+    print(f"Gap: {second[1] - best[1]:.10f}")
+
     if best_distance > UNKNOWN_THRESHOLD:
         print("\nPrediction: Unknown User")
     else:

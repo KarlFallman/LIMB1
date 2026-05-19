@@ -15,17 +15,17 @@ from torch.utils.data import Dataset
 # =========================
 INPUT_SIZE = 69
 HIDDEN_SIZE = 128
-EMBED_SIZE = 64
-MAX_SEQ_LEN = 30
+EMBED_SIZE = 32
+MAX_SEQ_LEN = 60
 
-BATCH_SIZE = 64
-EPOCHS = 250
-LEARNING_RATE = 5e-4
+BATCH_SIZE = 16
+EPOCHS = 500
+LEARNING_RATE = 3e-4
 
 VAL_SPLIT = 0.4
 MIN_VAL_FILES = 2
-PATIENCE = 50
-EXPORT_THRESHOLD = 0.2
+PATIENCE = 75
+EXPORT_THRESHOLD = 0.1
 EXPORT_ONNX = True
 
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -112,7 +112,7 @@ class MovementDataset(Dataset):
 
             path = os.path.join(folder, file)
             seq, user_id, sequence_num = load_sequence(path)
-            chunks = split_sequence(seq, sequence_num)
+            chunks = split_sequence(seq, len(seq))
 
             for chunk in chunks:
                 self.samples.append((chunk, user_id))
@@ -125,7 +125,7 @@ class MovementDataset(Dataset):
 
 
 # =========================
-# TRIPLET DATASET
+# TRIPLET DATASET (WITH SEMI-HARD MINING)
 # =========================
 class TripletDataset(Dataset):
     def __init__(self, base_dataset):
@@ -147,7 +147,29 @@ class TripletDataset(Dataset):
         ]
 
         positive = random.choice(positives)[0]
-        negative = random.choice(negatives)[0]
+
+        # =========================
+        # SEMI-HARD NEGATIVE MINING
+        # =========================
+
+        a = torch.tensor(anchor, dtype=torch.float32)
+        p = torch.tensor(positive, dtype=torch.float32)
+
+        anchor_pos_dist = torch.norm(a - p).item()
+
+        semi_hard = []
+
+        for neg in negatives:
+            n = torch.tensor(neg[0], dtype=torch.float32)
+            dist = torch.norm(a - n).item()
+
+            if anchor_pos_dist < dist < anchor_pos_dist + 0.1:
+                semi_hard.append(neg[0])
+
+        if len(semi_hard) > 0:
+            negative = random.choice(semi_hard)
+        else:
+            negative = random.choice(negatives)[0]
 
         return (
             torch.tensor(anchor, dtype=torch.float32),
@@ -176,9 +198,11 @@ class MovementGRU(nn.Module):
 
     def forward(self, x):
         out, _ = self.gru(x)
+        #out = out.mean(dim=1)
         out = out[:, -1, :]
         emb = self.fc(out)
-        return F.normalize(emb, dim=1)
+        #return F.normalize(emb, dim=1)
+        return emb
 
 
 # =========================
@@ -238,6 +262,7 @@ def run_epoch(model, dataset, optimizer, criterion, device, training=True):
 
             pos_dist = torch.norm(a - p, dim=1).mean().item()
             neg_dist = torch.norm(a - n, dim=1).mean().item()
+            ratio = pos_dist / (neg_dist + 1e-8)
 
             loss = criterion(a, p, n)
 
@@ -269,11 +294,6 @@ def main():
 
     folder = os.path.join(SCRIPT_DIR, "Data/Training")
 
-    print("Current working directory:", os.getcwd())
-    print("Script location:", SCRIPT_DIR)
-    print("Folder path:", folder)
-    print("Folder exists:", os.path.exists(folder))
-
     files = [f for f in os.listdir(folder) if f.endswith(".json")]
 
     user_files = {}
@@ -291,81 +311,40 @@ def main():
 
         user_files[user_id].append(file)
 
-    print("\nUsers found:")
-    for user_id, user_list in user_files.items():
-        print(user_id, len(user_list))
-
     train_files = []
     val_files = []
 
     for user_id, user_list in user_files.items():
         random.shuffle(user_list)
 
-        val_count = max(
-            MIN_VAL_FILES,
-            int(len(user_list) * VAL_SPLIT)
-        )
-
-        if len(user_list) <= val_count:
-            raise ValueError(
-                f"User {user_id} has too few files ({len(user_list)})"
-            )
+        val_count = max(MIN_VAL_FILES, int(len(user_list) * VAL_SPLIT))
 
         val = user_list[:val_count]
         train = user_list[val_count:]
 
-        val_files.extend(val)
         train_files.extend(train)
+        val_files.extend(val)
 
-        print(
-            f"User {user_id}: "
-            f"{len(train)} train / {len(val)} val"
-        )
-
-    print(f"Total train files: {len(train_files)}")
-    print(f"Total val files: {len(val_files)}")
-
-    train_dataset = TripletDataset(
-        MovementDataset(folder, train_files)
-    )
-
-    val_dataset = TripletDataset(
-        MovementDataset(folder, val_files)
-    )
+    train_dataset = TripletDataset(MovementDataset(folder, train_files))
+    val_dataset = TripletDataset(MovementDataset(folder, val_files))
 
     model = MovementGRU().to(device)
 
-    optimizer = optim.Adam(
-        model.parameters(),
-        lr=LEARNING_RATE
-    )
-
+    optimizer = optim.Adam(model.parameters(), lr=LEARNING_RATE)
     criterion = nn.TripletMarginLoss(margin=0.5)
 
     best_val_loss = float("inf")
-    best_pos = None
-    best_neg = None
-
     patience_counter = 0
     onnx_exported = False
 
     for epoch in range(EPOCHS):
+
         train_loss, train_pos, train_neg = run_epoch(
-            model,
-            train_dataset,
-            optimizer,
-            criterion,
-            device,
-            training=True
+            model, train_dataset, optimizer, criterion, device, True
         )
 
         val_loss, val_pos, val_neg = run_epoch(
-            model,
-            val_dataset,
-            optimizer,
-            criterion,
-            device,
-            training=False
+            model, val_dataset, optimizer, criterion, device, False
         )
 
         print(
@@ -373,32 +352,23 @@ def main():
             f"Train: {train_loss:.4f} | "
             f"Val: {val_loss:.4f} | "
             f"Val Pos: {val_pos:.4f} | "
-            f"Val Neg: {val_neg:.4f}"
+            f"Val Neg: {val_neg:.4f} | "
+            f"Val Ratio: {val_pos / (val_neg + 1e-8):.4f}"
         )
 
         if val_loss < best_val_loss:
             best_val_loss = val_loss
             best_pos = val_pos
             best_neg = val_neg
+            best_ratio = val_pos / (val_neg + 1e-8)
             patience_counter = 0
 
             torch.save(model.state_dict(), MODEL_PATH)
             print("Saved best model.")
 
-            if (
-                EXPORT_ONNX
-                and val_loss < EXPORT_THRESHOLD
-                and not onnx_exported
-            ):
-                export_model_to_onnx(model, device)
-                onnx_exported = True
-
         else:
             patience_counter += 1
-            print(
-                f"No validation improvement "
-                f"({patience_counter}/{PATIENCE})"
-            )
+            print(f"No validation improvement ({patience_counter}/{PATIENCE})")
 
         if patience_counter >= PATIENCE:
             print("Early stopping triggered.")
@@ -408,6 +378,7 @@ def main():
     print(f"Best validation loss: {best_val_loss:.4f}")
     print(f"Best positive distance: {best_pos:.4f}")
     print(f"Best negative distance: {best_neg:.4f}")
+    print(f"Best ratio: {best_pos / (best_neg + 1e-8):.4f}")
 
 
 if __name__ == "__main__":
