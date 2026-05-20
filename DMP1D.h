@@ -39,6 +39,14 @@ public:
         }
     }
 
+ 
+    // UPDATED: Dynamic Goal Changer
+    // Shifts attraction target coordinates without wiping state memory
+
+    void updateGoal(double new_goal) {
+        g = new_goal;
+    }
+
     // Load the trained brain (usually imported from Python)
     void setWeights(const std::vector<double>& learned_weights) {
         if (learned_weights.size() == num_basis) {
