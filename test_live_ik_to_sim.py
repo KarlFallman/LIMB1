@@ -115,11 +115,11 @@ def set_pose(robot, sh_rotz, sh_roty, sh_rotx, elbow_roty,
     SHOULDER_FLEX_SIM_ZERO = -1.39  # testa först att kalibrera detta istället för att hårdkoda
 
     elbow = np.clip(elbow * ELBOW_GAIN, 0.0, ROBOT_ELBOW_MAX)
-
-    p.resetJointState(robot, sh_rotz, -sh_abd)
-    p.resetJointState(robot, sh_roty, SHOULDER_FLEX_SIM_ZERO + sh_flex)
-    p.resetJointState(robot, sh_rotx, sh_rot)
-    p.resetJointState(robot, elbow_roty, elbow)
+   
+    p.resetJointState(robot, sh_rotz, sh_rot) # shoulder rotation
+    p.resetJointState(robot, sh_roty, SHOULDER_FLEX_SIM_ZERO + sh_flex) # shoulder flexion
+    p.resetJointState(robot, sh_rotx, sh_abd) # shoulder abduktion
+    p.resetJointState(robot, elbow_roty, elbow) # elbow flexion
 
 
 p.connect(p.GUI)
@@ -316,9 +316,9 @@ while pipeline.isRunning():
                         sh_roty,
                         sh_rotx,
                         elbow_roty,
-                        elbow=0.0,          #float(q_robot[0]),
+                        elbow=float(q_robot[0]),
                         sh_flex=float(q_robot[1]),
-                        sh_abd=0.0,         #float(q_robot[2]),
+                        sh_abd=float(q_robot[2]),
                         sh_rot=0.0,         #float(q_robot[3]),
                     )
 
@@ -397,6 +397,11 @@ while pipeline.isRunning():
 
             # Kalibrera shoulder flex-zero separat
             ik.calibrate_upper_arm_neutral(shoulder_point, elbow_point)
+
+            # Kalibrera shoulder abduction zero separat
+            ik.calibrate_shoulder_abd_zero(
+                angles["shoulder_abduction_rad"]
+            )
 
             print("Joint offsets calibrated based on current pose.")
 

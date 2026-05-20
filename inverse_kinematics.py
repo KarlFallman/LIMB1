@@ -16,6 +16,9 @@ class InverseKinematics:
         self.upper_arm_neutral = None
         self.shoulder_flex_direction = None
 
+        #initiela offset för kalibrering Shoulder abduction
+        self.shoulder_abd_zero_offset = 0.0
+
     def start(self):
         self.running = True
         print("Inverse kinematics started")
@@ -110,6 +113,14 @@ class InverseKinematics:
         self.shoulder_flex_direction = direction / direction_norm
         print("Shoulder flex direction calibrated")
 
+    def calibrate_shoulder_abd_zero(self, shoulder_abd_angle):
+        if shoulder_abd_angle is not None:
+            self.shoulder_abd_zero_offset = shoulder_abd_angle
+            print(
+                "Shoulder abduction zero calibrated:",
+                np.degrees(shoulder_abd_angle),
+                "deg"
+            )
     #-----------------------------
     # Huvudmetod för att beräkna armvinklar
     #----------------------------- 
@@ -177,6 +188,11 @@ class InverseKinematics:
             0.0,
             ROBOT_ELBOW_MAX
         )
+        # Ytterligare en tröskel för att behandla armen som helhet
+        ELBOW_STRAIGHT_THRESHOLD = np.radians(10)
+
+        if elbow_flexion < ELBOW_STRAIGHT_THRESHOLD:
+            elbow_flexion = 0.0
         
         # -----------------------------
         # 2. Shoulder flexion
@@ -211,7 +227,32 @@ class InverseKinematics:
         # 3. Shoulder abduction
         # -----------------------------
         # Sidledsrörelse.
-        shoulder_abduction = np.arctan2(abs(ux), abs(uy) + 1e-6)
+        # Arm min = 0 grader (rakt ner)
+        # Arm max = 40 grader 
+        shoulder_abduction = np.arctan2(abs(ux), -uy)
+
+        # Kalibrera neutralpose
+        shoulder_abduction = (
+            shoulder_abduction
+            - self.shoulder_abd_zero_offset
+        )
+
+        shoulder_abduction = max(0.0, shoulder_abduction)
+
+        # Deadzone
+        SHOULDER_ABD_DEADZONE = np.radians(8)
+
+        if shoulder_abduction < SHOULDER_ABD_DEADZONE:
+            shoulder_abduction = 0.0
+
+        # Robotlimit
+        SHOULDER_ABD_MAX = np.radians(40)
+
+        shoulder_abduction = np.clip(
+            shoulder_abduction,
+            0.0,
+            SHOULDER_ABD_MAX
+        )
 
         # -----------------------------
         # 4. Shoulder internal rotation
