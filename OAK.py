@@ -294,7 +294,7 @@ while pipeline.isRunning():
         if not recording:
             with open("recording.json", "w") as f:
                 output = {
-                    "user_id": 4,
+                    "user_id": 8,
                     "sequence": len(recorded_data),
                     "data": recorded_data
                 }  
