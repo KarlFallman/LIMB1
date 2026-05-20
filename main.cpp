@@ -15,7 +15,7 @@ const int PORT_SEND = 5006;     // Sending data TO Python
 const int NUM_COORDINATES = 63; // 21 MediaPipe dots * 3 (X,Y,Z)
 const double DT = 0.033;        // Simulation step time (~30 FPS)
 
-// --- HARDWARE JOINT LIMITS (From joint_limits.py) ---
+//  HARDWARE JOINT LIMITS (From joint_limits.py) 
 // These are in RADIANS.
 const double LIMITS_RAD[4][2] = {
     {0.0, 1.05},   // 0: Elbow flexion (0 to ~60 deg)
@@ -25,16 +25,16 @@ const double LIMITS_RAD[4][2] = {
 };
 
 int main() {
-    // ==========================================
+
     // 1. TURN ON THE AI BRAIN
-    // ==========================================
+
     std::cout << "Loading AI Brain...\n";
     // Using the exact ONNX filename from your repository
     ONNX_IK_Engine AI_Brain("movement_gru.onnx"); 
     
-    // ==========================================
+ 
     // 2. TURN ON THE DMP MUSCLES (4 DOFs)
-    // ==========================================
+
     std::cout << "Starting DMP Engines for the Arm...\n";
     DMP1D dmp_elbow(30);   
     DMP1D dmp_sh_flex(30);
@@ -44,9 +44,15 @@ int main() {
     // Track current physical angles (start at 0.0)
     double current_angles[4] = {0.0, 0.0, 0.0, 0.0};
 
-    // ==========================================
+    // Initialize baseline starting postures inside tracking controllers once
+    dmp_elbow.setupMovement(current_angles[0], 0.0, 0.5);
+    dmp_sh_flex.setupMovement(current_angles[1], 0.0, 0.5);
+    dmp_sh_abd.setupMovement(current_angles[2], 0.0, 0.5);
+    dmp_sh_rot.setupMovement(current_angles[3], 0.0, 0.5);
+
+
     // 3. BUILD THE UDP "EARS" (To receive coordinates)
-    // ==========================================
+
     int udp_socket;
     struct sockaddr_in server_address, client_address;
     socklen_t client_len = sizeof(client_address);
@@ -66,9 +72,9 @@ int main() {
         return -1;
     }
 
-    // ==========================================
+    
     // 4. PREPARE THE UDP "MOUTH" (To send to PyBullet)
-    // ==========================================
+   
     struct sockaddr_in sim_address;
     memset(&sim_address, 0, sizeof(sim_address));
     sim_address.sin_family = AF_INET;
@@ -81,9 +87,9 @@ int main() {
 
     float incoming_buffer[NUM_COORDINATES]; 
 
-    // ==========================================
+  
     // 5. THE LIVE MIMICKING LOOP
-    // ==========================================
+
     while (true) {
         // A. CATCH FILTERED DATA FROM PYTHON
         int bytes_received = recvfrom(udp_socket, (char *)incoming_buffer, sizeof(incoming_buffer), 
@@ -98,11 +104,14 @@ int main() {
             // Safety check: ensure ONNX returned exactly 4 angles
             if (target_angles.size() < 4) continue;
 
-            // C. SET DMP TARGETS
-            dmp_elbow.setupMovement(current_angles[0], target_angles[0], 0.5);
-            dmp_sh_flex.setupMovement(current_angles[1], target_angles[1], 0.5);
-            dmp_sh_abd.setupMovement(current_angles[2], target_angles[2], 0.5);
-            dmp_sh_rot.setupMovement(current_angles[3], target_angles[3], 0.5);
+      
+            
+            // Prevents resetting the speed history and mathematical clock profiles
+     
+            dmp_elbow.updateGoal(target_angles[0]);
+            dmp_sh_flex.updateGoal(target_angles[1]);
+            dmp_sh_abd.updateGoal(target_angles[2]);
+            dmp_sh_rot.updateGoal(target_angles[3]);
 
             // D. CALCULATE SMOOTH STEP & APPLY LIMITS
             current_angles[0] = std::clamp(dmp_elbow.step(DT), LIMITS_RAD[0][0], LIMITS_RAD[0][1]);
@@ -111,7 +120,6 @@ int main() {
             current_angles[3] = std::clamp(dmp_sh_rot.step(DT), LIMITS_RAD[3][0], LIMITS_RAD[3][1]);
 
             // E. SEND BACK TO PYTHON SIMULATION
-            // Package the 4 safe, smoothed angles
             float sim_output[4] = {
                 (float)current_angles[0], 
                 (float)current_angles[1], 
