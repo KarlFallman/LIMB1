@@ -19,6 +19,10 @@ class InverseKinematics:
         #initiela offset för kalibrering Shoulder abduction
         self.shoulder_abd_zero_offset = 0.0
 
+        #combination of offsets for shoulder flexion/abduction calibration
+        self.side_axis = np.array([1.0, 0.0, 0.0])
+        self.forward_axis = np.array([0.0, 0.0, -1.0])
+
     def start(self):
         self.running = True
         print("Inverse kinematics started")
@@ -202,20 +206,41 @@ class InverseKinematics:
         # Arm rakt fram = större vinkel
         # min 0, max 80 grader
         # OBS: första approximation.
+        # -----------------------------
+        # 3. Shoulder abduction
+        # -----------------------------
+        # Sidledsrörelse.
+        # Arm min = 0 grader (rakt ner)
+        # Arm max = 40 grade
 
         ux, uy, uz = upper_arm
 
         upper_arm_dir = upper_arm / (np.linalg.norm(upper_arm) + 1e-6)
 
         if self.upper_arm_neutral is not None:
-            shoulder_flexion = self._angle_between(
-                self.upper_arm_neutral,
-                upper_arm_dir
+            neutral = self.upper_arm_neutral
+            side_axis = self.side_axis
+            forward_axis = self.forward_axis
+
+            neutral_component = np.dot(upper_arm_dir, neutral)
+            side_component = np.dot(upper_arm_dir, side_axis)
+            forward_component = np.dot(upper_arm_dir, forward_axis)
+
+            shoulder_flexion = np.arctan2(
+                max(0.0, forward_component),
+                max(1e-6, neutral_component)
+            )
+
+            shoulder_abduction = np.arctan2(
+                abs(side_component),
+                max(1e-6, neutral_component)
             )
 
         else:
             shoulder_flexion = np.arctan2(-uy, abs(uz) + 1e-6)
-        
+            shoulder_abduction = np.arctan2(abs(ux), abs(uy) + 1e-6)
+
+
         SHOULDER_FLEX_DEADZONE = np.radians(5)
         if shoulder_flexion < SHOULDER_FLEX_DEADZONE:
             shoulder_flexion = 0.0
@@ -223,36 +248,16 @@ class InverseKinematics:
         SHOULDER_FLEX_MAX = np.radians(80)
         shoulder_flexion = np.clip(shoulder_flexion, 0.0, SHOULDER_FLEX_MAX)
 
-        # -----------------------------
-        # 3. Shoulder abduction
-        # -----------------------------
-        # Sidledsrörelse.
-        # Arm min = 0 grader (rakt ner)
-        # Arm max = 40 grader 
-        shoulder_abduction = np.arctan2(abs(ux), -uy)
 
-        # Kalibrera neutralpose
-        shoulder_abduction = (
-            shoulder_abduction
-            - self.shoulder_abd_zero_offset
-        )
-
+        shoulder_abduction = shoulder_abduction - self.shoulder_abd_zero_offset
         shoulder_abduction = max(0.0, shoulder_abduction)
 
-        # Deadzone
         SHOULDER_ABD_DEADZONE = np.radians(8)
-
         if shoulder_abduction < SHOULDER_ABD_DEADZONE:
             shoulder_abduction = 0.0
 
-        # Robotlimit
         SHOULDER_ABD_MAX = np.radians(40)
-
-        shoulder_abduction = np.clip(
-            shoulder_abduction,
-            0.0,
-            SHOULDER_ABD_MAX
-        )
+        shoulder_abduction = np.clip(shoulder_abduction, 0.0, SHOULDER_ABD_MAX)
 
         # -----------------------------
         # 4. Shoulder internal rotation

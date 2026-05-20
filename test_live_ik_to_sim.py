@@ -97,7 +97,6 @@ def valid_depth(depth_mm):
 # PyBullet setup
 # -----------------------------
 
-
 def joint_index(body_uid, joint_name):
     for i in range(p.getNumJoints(body_uid)):
         info = p.getJointInfo(body_uid, i)
