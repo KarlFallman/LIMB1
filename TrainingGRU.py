@@ -354,10 +354,6 @@ def main():
 
     train_files = []
     val_files = []
-    train_losses = []
-    val_losses = []
-    train_accs = []
-    val_accs = []
 
     for user_id, user_list in user_files.items():
         random.shuffle(user_list)
@@ -392,10 +388,6 @@ def main():
             model, val_dataset, optimizer, criterion, device, False
         )
         val_acc = compute_top1_accuracy(model, val_dataset, device)
-        train_losses.append(train_loss)
-        val_losses.append(val_loss)
-        train_accs.append(0.0)  # du har ingen riktig train acc än
-        val_accs.append(val_acc)
         print(
             f"Epoch {epoch+1}/{EPOCHS} | "
             f"Train: {train_loss:.4f} | "
@@ -432,44 +424,7 @@ def main():
     print(f"Best ratio: {best_pos / (best_neg + 1e-8):.4f}")
     print(f"Best accuracy: {best_acc:.4f}")
 
-    # --- 1. Prepare the Data (Replace with your actual lists from training) ---
-# Ensure your training loop appends values to these lists after each epoch
-# e.g., train_losses.append(loss.item())
-    epochs = list(range(1, EPOCHS + 1))  # Replace with actual epoch numbers
-
-# Create a figure wide enough for two plots side-by-side
-    plt.figure(figsize=(14, 5))
-
-# --- 2. Plot for LOSS ---
-    plt.subplot(1, 2, 1) # (rows, columns, index for this plot)
-    plt.plot(epochs, train_loss, 'b-o', label='Training Loss', markersize=4)
-    plt.plot(epochs, val_loss, 'r-o', label='Validation Loss', markersize=4)
-    plt.title('Model Loss Over Epochs')
-    plt.xlabel('Epochs')
-    plt.ylabel('Loss')
-    plt.legend()
-    plt.grid(True, linestyle='--', alpha=0.6)
-
-# --- 3. Plot for ACCURACY ---
-    plt.subplot(1, 2, 2)
-# Multiplied by 100 if accuracy was saved as decimals (e.g., 0.85 -> 85%)
-    plt.plot(epochs, [a * 100 for a in train_accs], 'b-o', label='Training Accuracy', markersize=4)
-    plt.plot(epochs, [a * 100 for a in val_accs], 'r-o', label='Validation Accuracy', markersize=4)
-    plt.title('Model Accuracy Over Epochs')
-    plt.xlabel('Epochs')
-    plt.ylabel('Accuracy (%)')
-    plt.legend()
-    plt.grid(True, linestyle='--', alpha=0.6)
-
-# Adjust layout to prevent text overlapping
-    plt.tight_layout()
-
-# --- 4. Save the Plot for the Report ---
-# This saves a high-resolution image directly into your project folder
-    plt.savefig('training_results_plot.png', dpi=300)
-
-# Display the plot on screen in VS Code
-    plt.show()
+    
 
 if __name__ == "__main__":
     main()
