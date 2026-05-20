@@ -8,6 +8,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 import torch.optim as optim
 from torch.utils.data import Dataset
+import matplotlib.pyplot as plt
 
 
 # =========================
@@ -18,7 +19,7 @@ HIDDEN_SIZE = 128
 EMBED_SIZE = 32
 MAX_SEQ_LEN = 60
 
-BATCH_SIZE = 16
+BATCH_SIZE = 8
 EPOCHS = 500
 LEARNING_RATE = 3e-4
 
@@ -190,6 +191,8 @@ class MovementGRU(nn.Module):
             HIDDEN_SIZE,
             batch_first=True
         )
+        self.dropout = nn.Dropout(0.3)
+        
 
         self.fc = nn.Linear(
             HIDDEN_SIZE,
@@ -200,9 +203,10 @@ class MovementGRU(nn.Module):
         out, _ = self.gru(x)
         #out = out.mean(dim=1)
         out = out[:, -1, :]
+        out = self.dropout(out)
         emb = self.fc(out)
-        #return F.normalize(emb, dim=1)
-        return emb
+        return F.normalize(emb, dim=1)
+        #return emb
 
 
 # =========================
@@ -282,7 +286,44 @@ def run_epoch(model, dataset, optimizer, criterion, device, training=True):
 
     return avg_loss, avg_pos, avg_neg
 
+def compute_top1_accuracy(model, dataset, device):
+    model.eval()
 
+    correct = 0
+    total = 0
+
+    # bygg embeddings för alla users i val-set
+    all_samples = dataset.data
+
+    with torch.no_grad():
+        for i in range(len(all_samples)):
+            anchor, true_user = all_samples[i]
+
+            anchor_tensor = torch.tensor(anchor, dtype=torch.float32).unsqueeze(0).to(device)
+            anchor_emb = model(anchor_tensor).cpu().numpy()[0]
+
+            best_user = None
+            best_dist = float("inf")
+
+            # jämför mot alla andra samples (enkelt men fungerar för din setup)
+            for j in range(len(all_samples)):
+                ref, ref_user = all_samples[j]
+
+                ref_tensor = torch.tensor(ref, dtype=torch.float32).unsqueeze(0).to(device)
+                ref_emb = model(ref_tensor).cpu().numpy()[0]
+
+                dist = np.linalg.norm(anchor_emb - ref_emb)
+
+                if dist < best_dist:
+                    best_dist = dist
+                    best_user = ref_user
+
+            if best_user == true_user:
+                correct += 1
+
+            total += 1
+
+    return correct / total
 # =========================
 # TRAIN
 # =========================
@@ -313,6 +354,10 @@ def main():
 
     train_files = []
     val_files = []
+    train_losses = []
+    val_losses = []
+    train_accs = []
+    val_accs = []
 
     for user_id, user_list in user_files.items():
         random.shuffle(user_list)
@@ -330,8 +375,8 @@ def main():
 
     model = MovementGRU().to(device)
 
-    optimizer = optim.Adam(model.parameters(), lr=LEARNING_RATE)
-    criterion = nn.TripletMarginLoss(margin=0.5)
+    optimizer = optim.Adam(model.parameters(), lr=LEARNING_RATE, weight_decay=5e-3)
+    criterion = nn.TripletMarginLoss(margin=0.7)
 
     best_val_loss = float("inf")
     patience_counter = 0
@@ -346,11 +391,16 @@ def main():
         val_loss, val_pos, val_neg = run_epoch(
             model, val_dataset, optimizer, criterion, device, False
         )
-
+        val_acc = compute_top1_accuracy(model, val_dataset, device)
+        train_losses.append(train_loss)
+        val_losses.append(val_loss)
+        train_accs.append(0.0)  # du har ingen riktig train acc än
+        val_accs.append(val_acc)
         print(
             f"Epoch {epoch+1}/{EPOCHS} | "
             f"Train: {train_loss:.4f} | "
             f"Val: {val_loss:.4f} | "
+            f"Val Acc: {val_acc:.4f} | "
             f"Val Pos: {val_pos:.4f} | "
             f"Val Neg: {val_neg:.4f} | "
             f"Val Ratio: {val_pos / (val_neg + 1e-8):.4f}"
@@ -361,6 +411,7 @@ def main():
             best_pos = val_pos
             best_neg = val_neg
             best_ratio = val_pos / (val_neg + 1e-8)
+            best_acc = val_acc
             patience_counter = 0
 
             torch.save(model.state_dict(), MODEL_PATH)
@@ -379,7 +430,46 @@ def main():
     print(f"Best positive distance: {best_pos:.4f}")
     print(f"Best negative distance: {best_neg:.4f}")
     print(f"Best ratio: {best_pos / (best_neg + 1e-8):.4f}")
+    print(f"Best accuracy: {best_acc:.4f}")
 
+    # --- 1. Prepare the Data (Replace with your actual lists from training) ---
+# Ensure your training loop appends values to these lists after each epoch
+# e.g., train_losses.append(loss.item())
+    epochs = list(range(1, EPOCHS + 1))  # Replace with actual epoch numbers
+
+# Create a figure wide enough for two plots side-by-side
+    plt.figure(figsize=(14, 5))
+
+# --- 2. Plot for LOSS ---
+    plt.subplot(1, 2, 1) # (rows, columns, index for this plot)
+    plt.plot(epochs, train_loss, 'b-o', label='Training Loss', markersize=4)
+    plt.plot(epochs, val_loss, 'r-o', label='Validation Loss', markersize=4)
+    plt.title('Model Loss Over Epochs')
+    plt.xlabel('Epochs')
+    plt.ylabel('Loss')
+    plt.legend()
+    plt.grid(True, linestyle='--', alpha=0.6)
+
+# --- 3. Plot for ACCURACY ---
+    plt.subplot(1, 2, 2)
+# Multiplied by 100 if accuracy was saved as decimals (e.g., 0.85 -> 85%)
+    plt.plot(epochs, [a * 100 for a in train_accs], 'b-o', label='Training Accuracy', markersize=4)
+    plt.plot(epochs, [a * 100 for a in val_accs], 'r-o', label='Validation Accuracy', markersize=4)
+    plt.title('Model Accuracy Over Epochs')
+    plt.xlabel('Epochs')
+    plt.ylabel('Accuracy (%)')
+    plt.legend()
+    plt.grid(True, linestyle='--', alpha=0.6)
+
+# Adjust layout to prevent text overlapping
+    plt.tight_layout()
+
+# --- 4. Save the Plot for the Report ---
+# This saves a high-resolution image directly into your project folder
+    plt.savefig('training_results_plot.png', dpi=300)
+
+# Display the plot on screen in VS Code
+    plt.show()
 
 if __name__ == "__main__":
     main()
