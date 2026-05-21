@@ -1,6 +1,7 @@
 import os
 import json
 import random
+from sched import scheduler
 import numpy as np
 
 import torch
@@ -16,14 +17,14 @@ import matplotlib.pyplot as plt
 # =========================
 INPUT_SIZE = 69
 HIDDEN_SIZE = 128
-EMBED_SIZE = 32
+EMBED_SIZE = 64
 MAX_SEQ_LEN = 60
 
-BATCH_SIZE = 8
+BATCH_SIZE = 16
 EPOCHS = 500
-LEARNING_RATE = 3e-4
+LEARNING_RATE = 5e-4
 
-VAL_SPLIT = 0.4
+VAL_SPLIT = 0.2
 MIN_VAL_FILES = 2
 PATIENCE = 75
 EXPORT_THRESHOLD = 0.1
@@ -113,11 +114,30 @@ class MovementDataset(Dataset):
 
             path = os.path.join(folder, file)
             seq, user_id, sequence_num = load_sequence(path)
-            chunks = split_sequence(seq, len(seq))
+            #chunks = split_sequence(seq, len(seq))
 
-            for chunk in chunks:
-                self.samples.append((chunk, user_id))
-
+            #for chunk in chunks:
+                #self.samples.append((chunk, user_id))
+            if len(seq) >= MAX_SEQ_LEN:
+                chunk = seq[:MAX_SEQ_LEN]
+            else:
+                pad_len = MAX_SEQ_LEN - len(seq)
+                pad = np.zeros((pad_len, seq.shape[1]))
+                chunk = np.vstack([seq, pad])
+            # -------------------------------------------------------------
+            # CENTRERING: Görs direkt vid laddning så all data i minnet är ren!
+            # -------------------------------------------------------------
+            centered_chunk = chunk.copy()
+            for t in range(len(centered_chunk)):
+                if np.all(centered_chunk[t] == 0): # Ignorera padding-frames
+                    continue
+                # Index 0, 1, 2 är shoulder_x, shoulder_y, shoulder_z
+                base_x, base_y, base_z = centered_chunk[t, 0], centered_chunk[t, 1], centered_chunk[t, 2]
+                for p in range(0, 69, 3):
+                    centered_chunk[t, p] -= base_x
+                    centered_chunk[t, p+1] -= base_y
+                    centered_chunk[t, p+2] -= base_z
+            self.samples.append((centered_chunk, user_id))
     def __len__(self):
         return len(self.samples)
 
@@ -128,50 +148,30 @@ class MovementDataset(Dataset):
 # =========================
 # TRIPLET DATASET (WITH SEMI-HARD MINING)
 # =========================
+# Uppdatera ditt Dataset så att det är stabilt
 class TripletDataset(Dataset):
-    def __init__(self, base_dataset):
+    def __init__(self, base_dataset, is_val=False):
         self.data = base_dataset.samples
+        self.is_val = is_val
 
     def __len__(self):
         return len(self.data)
 
     def __getitem__(self, idx):
         anchor, user = self.data[idx]
-
-        positives = [
-            x for x in self.data
-            if x[1] == user and not np.array_equal(x[0], anchor)
-        ]
-        negatives = [
-            x for x in self.data
-            if x[1] != user
-        ]
-
-        positive = random.choice(positives)[0]
-
-        # =========================
-        # SEMI-HARD NEGATIVE MINING
-        # =========================
-
-        a = torch.tensor(anchor, dtype=torch.float32)
-        p = torch.tensor(positive, dtype=torch.float32)
-
-        anchor_pos_dist = torch.norm(a - p).item()
-
-        semi_hard = []
-
-        for neg in negatives:
-            n = torch.tensor(neg[0], dtype=torch.float32)
-            dist = torch.norm(a - n).item()
-
-            if anchor_pos_dist < dist < anchor_pos_dist + 0.1:
-                semi_hard.append(neg[0])
-
-        if len(semi_hard) > 0:
-            negative = random.choice(semi_hard)
+        
+        positives = [x for x in self.data if x[1] == user and not np.array_equal(x[0], anchor)]
+        negatives = [x for x in self.data if x[1] != user]
+        
+        # Säkerhetsåtgärd om en användare bara har en sekvens
+        if len(positives) == 0:
+            positive = [x for x in self.data if x[1] == user]  # Ta den enda sekvensen som positiv
+        if self.is_val:
+            positive = positives[idx % len(positives)][0]
+            negative = negatives[idx % len(negatives)][0]
         else:
+            positive = random.choice(positives)[0]
             negative = random.choice(negatives)[0]
-
         return (
             torch.tensor(anchor, dtype=torch.float32),
             torch.tensor(positive, dtype=torch.float32),
@@ -189,7 +189,9 @@ class MovementGRU(nn.Module):
         self.gru = nn.GRU(
             INPUT_SIZE,
             HIDDEN_SIZE,
-            batch_first=True
+            batch_first=True,
+            num_layers=2,
+            dropout=0.3
         )
         self.dropout = nn.Dropout(0.3)
         
@@ -201,8 +203,8 @@ class MovementGRU(nn.Module):
 
     def forward(self, x):
         out, _ = self.gru(x)
-        #out = out.mean(dim=1)
-        out = out[:, -1, :]
+        out = out.mean(dim=1)
+        #out = out[:, -1, :]
         out = self.dropout(out)
         emb = self.fc(out)
         return F.normalize(emb, dim=1)
@@ -273,6 +275,7 @@ def run_epoch(model, dataset, optimizer, criterion, device, training=True):
             if training:
                 optimizer.zero_grad()
                 loss.backward()
+                torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0)
                 optimizer.step()
 
             total_loss += loss.item()
@@ -288,11 +291,8 @@ def run_epoch(model, dataset, optimizer, criterion, device, training=True):
 
 def compute_top1_accuracy(model, dataset, device):
     model.eval()
-
     correct = 0
     total = 0
-
-    # bygg embeddings för alla users i val-set
     all_samples = dataset.data
 
     with torch.no_grad():
@@ -305,9 +305,12 @@ def compute_top1_accuracy(model, dataset, device):
             best_user = None
             best_dist = float("inf")
 
-            # jämför mot alla andra samples (enkelt men fungerar för din setup)
             for j in range(len(all_samples)):
                 ref, ref_user = all_samples[j]
+                
+                # SÄKERHET: Jämför inte med sig själv eller exakta kopior
+                if i == j or np.array_equal(anchor, ref):
+                    continue
 
                 ref_tensor = torch.tensor(ref, dtype=torch.float32).unsqueeze(0).to(device)
                 ref_emb = model(ref_tensor).cpu().numpy()[0]
@@ -318,12 +321,12 @@ def compute_top1_accuracy(model, dataset, device):
                     best_dist = dist
                     best_user = ref_user
 
-            if best_user == true_user:
-                correct += 1
+            if best_user is not None:
+                total += 1
+                if best_user == true_user:
+                    correct += 1
 
-            total += 1
-
-    return correct / total
+    return correct / total if total > 0 else 0.0
 # =========================
 # TRAIN
 # =========================
@@ -354,10 +357,6 @@ def main():
 
     train_files = []
     val_files = []
-    train_losses = []
-    val_losses = []
-    train_accs = []
-    val_accs = []
 
     for user_id, user_list in user_files.items():
         random.shuffle(user_list)
@@ -370,13 +369,14 @@ def main():
         train_files.extend(train)
         val_files.extend(val)
 
-    train_dataset = TripletDataset(MovementDataset(folder, train_files))
-    val_dataset = TripletDataset(MovementDataset(folder, val_files))
-
+    # Ändra till detta så att valideringen blir stabil
+    train_dataset = TripletDataset(MovementDataset(folder, train_files), is_val=False)
+    val_dataset = TripletDataset(MovementDataset(folder, val_files), is_val=True)
     model = MovementGRU().to(device)
 
-    optimizer = optim.Adam(model.parameters(), lr=LEARNING_RATE, weight_decay=5e-3)
-    criterion = nn.TripletMarginLoss(margin=0.7)
+    optimizer = optim.Adam(model.parameters(), lr=LEARNING_RATE, weight_decay=5e-4)
+    scheduler = optim.lr_scheduler.ReduceLROnPlateau(optimizer, mode='min', factor=0.5, patience=15)
+    criterion = nn.TripletMarginLoss(margin=0.3)
 
     best_val_loss = float("inf")
     patience_counter = 0
@@ -391,11 +391,10 @@ def main():
         val_loss, val_pos, val_neg = run_epoch(
             model, val_dataset, optimizer, criterion, device, False
         )
+        # Stega din scheduler baserat på valideringsförlusten
+        scheduler.step(val_loss)
+        #if epoch % 10 == 0:
         val_acc = compute_top1_accuracy(model, val_dataset, device)
-        train_losses.append(train_loss)
-        val_losses.append(val_loss)
-        train_accs.append(0.0)  # du har ingen riktig train acc än
-        val_accs.append(val_acc)
         print(
             f"Epoch {epoch+1}/{EPOCHS} | "
             f"Train: {train_loss:.4f} | "
@@ -424,7 +423,6 @@ def main():
         if patience_counter >= PATIENCE:
             print("Early stopping triggered.")
             break
-
     print("\n===== FINAL BEST MODEL =====")
     print(f"Best validation loss: {best_val_loss:.4f}")
     print(f"Best positive distance: {best_pos:.4f}")
@@ -432,44 +430,7 @@ def main():
     print(f"Best ratio: {best_pos / (best_neg + 1e-8):.4f}")
     print(f"Best accuracy: {best_acc:.4f}")
 
-    # --- 1. Prepare the Data (Replace with your actual lists from training) ---
-# Ensure your training loop appends values to these lists after each epoch
-# e.g., train_losses.append(loss.item())
-    epochs = list(range(1, EPOCHS + 1))  # Replace with actual epoch numbers
-
-# Create a figure wide enough for two plots side-by-side
-    plt.figure(figsize=(14, 5))
-
-# --- 2. Plot for LOSS ---
-    plt.subplot(1, 2, 1) # (rows, columns, index for this plot)
-    plt.plot(epochs, train_loss, 'b-o', label='Training Loss', markersize=4)
-    plt.plot(epochs, val_loss, 'r-o', label='Validation Loss', markersize=4)
-    plt.title('Model Loss Over Epochs')
-    plt.xlabel('Epochs')
-    plt.ylabel('Loss')
-    plt.legend()
-    plt.grid(True, linestyle='--', alpha=0.6)
-
-# --- 3. Plot for ACCURACY ---
-    plt.subplot(1, 2, 2)
-# Multiplied by 100 if accuracy was saved as decimals (e.g., 0.85 -> 85%)
-    plt.plot(epochs, [a * 100 for a in train_accs], 'b-o', label='Training Accuracy', markersize=4)
-    plt.plot(epochs, [a * 100 for a in val_accs], 'r-o', label='Validation Accuracy', markersize=4)
-    plt.title('Model Accuracy Over Epochs')
-    plt.xlabel('Epochs')
-    plt.ylabel('Accuracy (%)')
-    plt.legend()
-    plt.grid(True, linestyle='--', alpha=0.6)
-
-# Adjust layout to prevent text overlapping
-    plt.tight_layout()
-
-# --- 4. Save the Plot for the Report ---
-# This saves a high-resolution image directly into your project folder
-    plt.savefig('training_results_plot.png', dpi=300)
-
-# Display the plot on screen in VS Code
-    plt.show()
+    
 
 if __name__ == "__main__":
     main()
