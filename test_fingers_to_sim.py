@@ -23,8 +23,12 @@ index_joints  = [12, 13, 14]
 middle_joints = [15, 16, 17]
 ring_joints   = [19, 20, 21]
 pinky_joints  = [23, 24, 25]
-ring_anchor_joint = 18
-pinky_anchor_joint = 22
+
+pinky_anchor = pinky_joints[0]
+pinky_bend_joints = pinky_joints[1:]
+
+ring_anchor = ring_joints[0]
+ring_bend_joints = ring_joints[1:]
 
 all_finger_joints = (
     thumb_joints
@@ -38,23 +42,26 @@ all_finger_joints = (
 def set_hand_grip(grip):
     grip = np.clip(grip, 0.0, 1.0)
 
-    thumb_angle = -grip * 0.8
     index_angle = -grip * 0.8
     middle_angle = -grip * 0.8
     ring_angle = -grip * 0.8
+
+    pinky_anchor_angle = grip * 0.8
     pinky_angle = -grip * 0.8
 
-    ring_anchor_angle = -0.25
-    pinky_anchor_angle = -0.35
+    p.resetJointState(robot, pinky_anchor, pinky_anchor_angle)
+
+    ring_anchor_angle = grip * 0.8
+    ring_angle = -grip * 0.8
+
+    p.resetJointState(robot, ring_anchor, ring_anchor_angle)
+
     thumb_angles = [
-        -grip * 0.3,
-        -grip * 0.6,
-        -grip * 0.8,
+        grip * 0.5,
+        grip * 0.6,
+        grip * 0.8,
     ]
-
-    p.resetJointState(robot, ring_anchor_joint, ring_anchor_angle)
-    p.resetJointState(robot, pinky_anchor_joint, pinky_anchor_angle)
-
+   
     for joint, angle in zip(thumb_joints, thumb_angles):
         p.resetJointState(robot, joint, angle)
 
@@ -64,14 +71,17 @@ def set_hand_grip(grip):
     for j in middle_joints:
         p.resetJointState(robot, j, middle_angle)
 
-    for j in ring_joints:
+    for j in ring_bend_joints:
         p.resetJointState(robot, j, ring_angle)
 
-    for j in pinky_joints:
+    for j in pinky_bend_joints:
         p.resetJointState(robot, j, pinky_angle)
+    
+   
 
 # Testa öppna/stäng
 while True:
+
     for grip in np.linspace(0.0, 1.0, 50):
         set_hand_grip(grip)
         time.sleep(0.03)
