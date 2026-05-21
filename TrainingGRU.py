@@ -19,11 +19,11 @@ HIDDEN_SIZE = 128
 EMBED_SIZE = 32
 MAX_SEQ_LEN = 60
 
-BATCH_SIZE = 8
+BATCH_SIZE = 16
 EPOCHS = 500
-LEARNING_RATE = 3e-4
+LEARNING_RATE = 3e-3
 
-VAL_SPLIT = 0.4
+VAL_SPLIT = 0.2
 MIN_VAL_FILES = 2
 PATIENCE = 75
 EXPORT_THRESHOLD = 0.1
@@ -164,7 +164,7 @@ class TripletDataset(Dataset):
             n = torch.tensor(neg[0], dtype=torch.float32)
             dist = torch.norm(a - n).item()
 
-            if anchor_pos_dist < dist < anchor_pos_dist + 0.1:
+            if dist > anchor_pos_dist and dist < anchor_pos_dist + 0.5:
                 semi_hard.append(neg[0])
 
         if len(semi_hard) > 0:
@@ -307,6 +307,8 @@ def compute_top1_accuracy(model, dataset, device):
 
             # jämför mot alla andra samples (enkelt men fungerar för din setup)
             for j in range(len(all_samples)):
+                if i == j:
+                    continue
                 ref, ref_user = all_samples[j]
 
                 ref_tensor = torch.tensor(ref, dtype=torch.float32).unsqueeze(0).to(device)
@@ -371,8 +373,8 @@ def main():
 
     model = MovementGRU().to(device)
 
-    optimizer = optim.Adam(model.parameters(), lr=LEARNING_RATE, weight_decay=5e-3)
-    criterion = nn.TripletMarginLoss(margin=0.7)
+    optimizer = optim.Adam(model.parameters(), lr=LEARNING_RATE, weight_decay=5e-4)
+    criterion = nn.TripletMarginLoss(margin=0.4)
 
     best_val_loss = float("inf")
     patience_counter = 0
@@ -387,6 +389,7 @@ def main():
         val_loss, val_pos, val_neg = run_epoch(
             model, val_dataset, optimizer, criterion, device, False
         )
+        #if epoch % 10 == 0:
         val_acc = compute_top1_accuracy(model, val_dataset, device)
         print(
             f"Epoch {epoch+1}/{EPOCHS} | "
@@ -416,7 +419,10 @@ def main():
         if patience_counter >= PATIENCE:
             print("Early stopping triggered.")
             break
-
+        if patience_counter % 20 == 0 and patience_counter > 0:
+            lr = optimizer.param_groups[0]['lr'] * 0.5
+            optimizer.param_groups[0]['lr'] = lr
+            print(f"Reduced learning rate to {lr:.6f}")
     print("\n===== FINAL BEST MODEL =====")
     print(f"Best validation loss: {best_val_loss:.4f}")
     print(f"Best positive distance: {best_pos:.4f}")
