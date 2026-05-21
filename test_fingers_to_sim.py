@@ -46,12 +46,12 @@ def set_hand_grip(grip):
     middle_angle = -grip * 0.8
     ring_angle = -grip * 0.8
 
-    pinky_anchor_angle = grip * 0.8
+    pinky_anchor_angle = -grip * 0.8
     pinky_angle = -grip * 0.8
 
     p.resetJointState(robot, pinky_anchor, pinky_anchor_angle)
 
-    ring_anchor_angle = grip * 0.8
+    ring_anchor_angle = -grip * 0.8
     ring_angle = -grip * 0.8
 
     p.resetJointState(robot, ring_anchor, ring_anchor_angle)

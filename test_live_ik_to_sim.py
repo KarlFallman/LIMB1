@@ -8,11 +8,20 @@ from inverse_kinematics import InverseKinematics
 from sim.joint_limits import clamp_dmp_vector
 import pybullet as p
 import time
+from hand_kinematics import calculate_grip_from_hand, calculate_finger_grips
+
 # -----------------------------
 # MediaPipe setup You need to install mediapipe with: pip install mediapipe==0.10.14 if you have Python 3.12
 # -----------------------------
 mp_hands = mp.solutions.hands
 mp_drawing = mp.solutions.drawing_utils
+
+# Joint indices in PyBullet URDF for fingers
+thumb_joints  = [9, 10, 11]
+index_joints  = [12, 13, 14]
+middle_joints = [15, 16, 17]
+ring_joints   = [19, 20, 21]
+pinky_joints  = [23, 24, 25]
 
 hands = mp_hands.Hands(
     static_image_mode=False,
@@ -43,6 +52,7 @@ cam_out = cam.requestOutput(
     (640, 480),
     type=dai.ImgFrame.Type.BGR888p
 )
+
 # -----------------------------
 # Stereo depth setup
 # -----------------------------
@@ -152,11 +162,50 @@ hand_filters = [KalmanPointFilter() for _ in range(21)]
 ik = InverseKinematics()
 ik.start()
 
-neutral_offset = None
 q_human = None
-
 prev_q_robot = None
 ANGLE_ALPHA = 0.25  # lägre = mjukare men mer latency
+
+#-----------------------------
+# Inverse kinematics main function fingers
+#-----------------------------
+
+def set_hand_grips(robot, finger_grips):
+    if finger_grips is None:
+        return
+
+    thumb = finger_grips["thumb"]
+    index = finger_grips["index"]
+    middle = finger_grips["middle"]
+    ring = finger_grips["ring"]
+    pinky = finger_grips["pinky"]
+
+    thumb_angles = [
+        thumb * 0.5,
+        thumb * 0.6,
+        thumb * 0.8,
+    ]
+
+    index_angle = -index * 0.8
+    middle_angle = -middle * 0.8
+    ring_angle = -ring * 0.8
+    pinky_angle = -pinky * 0.8
+
+    for joint, angle in zip(thumb_joints, thumb_angles):
+        p.resetJointState(robot, joint, angle)
+
+    for j in index_joints:
+        p.resetJointState(robot, j, index_angle)
+
+    for j in middle_joints:
+        p.resetJointState(robot, j, middle_angle)
+
+    for j in ring_joints:
+        p.resetJointState(robot, j, ring_angle)
+
+    for j in pinky_joints:
+        p.resetJointState(robot, j, pinky_angle)
+
 
 # -----------------------------
 # Main loop
@@ -315,15 +364,23 @@ while pipeline.isRunning():
                         sh_roty,
                         sh_rotx,
                         elbow_roty,
-                        elbow=float(q_robot[0]),
-                        sh_flex=float(q_robot[1]),
-                        sh_abd=float(q_robot[2]),
+                        elbow=0.0,             #float(q_robot[0]),
+                        sh_flex=0.0,         #float(q_robot[1]),
+                        sh_abd=0.0,         #float(q_robot[2]),
                         sh_rot=0.0,         #float(q_robot[3]),
                     )
 
                     p.stepSimulation()
-                    print("shoulder flex deg:", np.degrees(q_robot[1]))
 
+                    if len(hand_keypoints) >= 21:
+
+                        finger_grips = calculate_finger_grips(hand_keypoints)
+
+                        set_hand_grips(robot, finger_grips)
+
+                        if frame_count % modolu == 0:
+                            print("Finger grips:", finger_grips)
+                    
 
                 if frame_count % modolu == 0:
                     print(json.dumps(hand_keypoints, indent=2))
@@ -346,7 +403,7 @@ while pipeline.isRunning():
                     print("-----")
                     if angles is not None:
                         print("IK angles deg:", angles["q_deg"])
-
+                        
                     if recording:
                         frame_data = {
                             "shoulder": [fsx, fsy, fsz],
