@@ -11,14 +11,14 @@ import torch.nn.functional as F
 # =========================
 INPUT_SIZE = 69
 HIDDEN_SIZE = 128
-EMBED_SIZE = 64              # Ändrad till 64 (matchar din sparade modell)
+EMBED_SIZE = 128              # Ändrad till 64 (matchar din sparade modell)
 MAX_SEQ_LEN = 60
-UNKNOWN_THRESHOLD = 0.5
+UNKNOWN_THRESHOLD = 0.51
 MODEL_PATH = "movement_gru_best.pth"
 
 DATA_FOLDER = "Data/References"
 TEST_FOLDER = "Test/Final"
-TEST_FILE = "ID11test3.json"
+TEST_FILE = "ID14test3.json"
 
 
 # =========================
@@ -53,19 +53,25 @@ def load_sequence(path):
     seq = np.stack(seq)
 
     # -------------------------------------------------------------
-    # SÄKRAD DATALADDNING: Samma klippning/padding som vid träning
+    # NYTT: SAMMA RESAMPLING SOM VID TRÄNING
     # -------------------------------------------------------------
-    if len(seq) >= MAX_SEQ_LEN:
-        chunk = seq[:MAX_SEQ_LEN]
+    num_frames = seq.shape[0]
+    num_features = seq.shape[1]
+    
+    if num_frames > 1:
+        current_indices = np.linspace(0, num_frames - 1, num_frames)
+        target_indices = np.linspace(0, num_frames - 1, MAX_SEQ_LEN)
+        
+        resampled_chunk = np.zeros((MAX_SEQ_LEN, num_features))
+        for f in range(num_features):
+            resampled_chunk[:, f] = np.interp(target_indices, current_indices, seq[:, f])
     else:
-        pad_len = MAX_SEQ_LEN - len(seq)
-        pad = np.zeros((pad_len, seq.shape[1]))
-        chunk = np.vstack([seq, pad])
+        resampled_chunk = np.repeat(seq, MAX_SEQ_LEN, axis=0)
 
     # -------------------------------------------------------------
     # RUMS-CENTRERING: Tvingar predict att titta på samma rena data
     # -------------------------------------------------------------
-    centered_chunk = chunk.copy()
+    centered_chunk = resampled_chunk.copy()
     for t in range(len(centered_chunk)):
         if np.all(centered_chunk[t] == 0): 
             continue
@@ -101,6 +107,7 @@ class MovementGRU(nn.Module):
     def forward(self, x):
         out, _ = self.gru(x)
         out = out.mean(dim=1)      # Mean pooling
+        
         emb = self.fc(out)
         return F.normalize(emb, dim=1) # Kom ihåg normaliseringen till sfären!
 
