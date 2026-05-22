@@ -2,7 +2,7 @@ import depthai as dai
 import cv2
 import mediapipe as mp
 import numpy as np
-import json
+import math
 from kalman_filter import KalmanPointFilter
 from inverse_kinematics import InverseKinematics
 from sim.joint_limits import clamp_dmp_vector
@@ -209,43 +209,53 @@ class LiveDMP:
     A real-time continuous attractor based on DMP dynamics.
     Acts as a perfectly critically damped spring to smooth live, jittery targets.
     """
-    def __init__(self, num_dofs=4, alpha_z=25.0, dt=0.033):
+    def __init__(self, num_dofs=4, alpha_z=25.0):
+        # Removed dt from init because we calculate it dynamically per frame nu
         self.num_dofs = num_dofs
-        self.dt = dt
-        
-        # DMP Constants
         self.alpha_z = alpha_z
-        self.beta_z = self.alpha_z / 4.0  # Critical damping threshold
+        self.beta_z = self.alpha_z / 4.0  
         
-        # State variables
-        self.y = None      # Current smoothed position
-        self.dy = np.zeros(num_dofs) # Current velocity
+        self.y = None      
+        self.dy = np.zeros(num_dofs) 
         
-    def step(self, target_g):
+    def step(self, target_g, dt):
+        # Safety net: If PC stutters and dt is massive, cap it so physics don't explode
+        dt = np.clip(dt, 0.001, 0.1)
+        
         target_g = np.array(target_g, dtype=float)
         
-        # Initialize position to the first seen target to prevent massive snapping
         if self.y is None:
             self.y = target_g.copy()
             return self.y
             
-        # Calculate acceleration needed to reach the live target smoothly
-        ddy = self.alpha_z * (self.beta_z * (target_g - self.y) - self.dy)
-        
-        # Euler integration
-        self.dy += ddy * self.dt
-        self.y += self.dy * self.dt
-        
+        steps = int(math.ceil(dt / 0.005))
+        sub_dt = dt / steps
+
+        for _ in range(steps):
+            ddy = self.alpha_z * (self.beta_z * (target_g - self.y) - self.dy)
+            self.dy += ddy * sub_dt
+            self.y += self.dy * sub_dt
+
         return self.y.copy()
 
 q_human = None
-# increase 25.0 for faster, snabbare tracking
-live_dmp = LiveDMP(num_dofs=4, alpha_z=25.0, dt=0.033)
+
+# Initialize TWO DMPs: One for the 4 arm joints, one for the 5 fingers
+live_arm_dmp = LiveDMP(num_dofs=4, alpha_z=25.0)
+live_finger_dmp = LiveDMP(num_dofs=5, alpha_z=30.0) # Fingers can be slightly snappier
+
+# Start the clock for dynamic dt tracking
+prev_time = time.time()
 
 # -----------------------------
 # Main loop
 # -----------------------------
 while pipeline.isRunning():
+    # Calculate exact dynamic time (dt) for this frame
+    current_time = time.time()
+    dt = current_time - prev_time
+    prev_time = current_time
+
     hand_wrist_pixel = None
     hand_keypoints = []
     frame_in = video_queue.get()
@@ -314,7 +324,7 @@ while pipeline.isRunning():
                 # Spara handens handled
                 if i == mp_hands.HandLandmark.WRIST:
                     hand_wrist_pixel = (int(fx), int(fy))
-                    
+
     # Rita pose skelett
     if pose_results.pose_landmarks:
         h, w, _ = frame.shape
@@ -385,9 +395,11 @@ while pipeline.isRunning():
 
                     q_robot = clamp_dmp_vector(q_robot)
 
-                    # Pass the raw, clamped target to the Live DMP to get the smooth position
-                    q_smooth = live_dmp.step(q_robot)
-                    q_robot = q_smooth
+                     # 1. Pass BOTH the target and the dt
+                    q_smooth = live_arm_dmp.step(q_robot, dt)
+                    
+                    # 2. Clamp it AGAIN to prevent overshoot crashing the robot
+                    q_robot = clamp_dmp_vector(q_smooth)
 
                     set_pose(
                         robot,
@@ -401,9 +413,33 @@ while pipeline.isRunning():
                         sh_rot=0.0,         #float(q_robot[3]),
                     )
                     
+                    # ----- FINGER SMOOTHING -----
                     if len(hand_keypoints) >= 21:
-
-                        finger_grips = calculate_finger_grips(hand_keypoints)
+                        raw_grips = calculate_finger_grips(hand_keypoints)
+                        
+                        # Convert dict to array for the DMP
+                        target_fingers = np.array([
+                            raw_grips["thumb"], 
+                            raw_grips["index"], 
+                            raw_grips["middle"], 
+                            raw_grips["ring"], 
+                            raw_grips["pinky"]
+                        ])
+                        
+                        # Smooth it!
+                        smooth_fingers = live_finger_dmp.step(target_fingers, dt)
+                        
+                        # Clamp grip percentages between 0.0 (open) and 1.0 (closed)
+                        smooth_fingers = np.clip(smooth_fingers, 0.0, 1.0)
+                        
+                        # Repackage into dict
+                        finger_grips = {
+                            "thumb": smooth_fingers[0],
+                            "index": smooth_fingers[1],
+                            "middle": smooth_fingers[2],
+                            "ring": smooth_fingers[3],
+                            "pinky": smooth_fingers[4]
+                        }
 
                         set_hand_grips(robot, finger_grips)
                     
