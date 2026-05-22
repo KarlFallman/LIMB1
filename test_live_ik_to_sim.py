@@ -63,6 +63,8 @@ left_out = mono_left.requestOutput((640, 400), type=dai.ImgFrame.Type.GRAY8)
 right_out = mono_right.requestOutput((640, 400), type=dai.ImgFrame.Type.GRAY8)
 
 stereo = pipeline.create(dai.node.StereoDepth)
+stereo.setDepthAlign(dai.CameraBoardSocket.RGB)
+stereo.setOutputSize(640, 480)
 
 left_out.link(stereo.left)
 right_out.link(stereo.right)
@@ -157,9 +159,6 @@ shoulder_filter = KalmanPointFilter()
 hand_filters = [KalmanPointFilter() for _ in range(21)]
 ik = InverseKinematics()
 ik.start()
-
-
-#ANGLE_ALPHA = 0.25  # lägre = mjukare men mer latency
 
 #-----------------------------
 # Inverse kinematics main function fingers
@@ -315,7 +314,7 @@ while pipeline.isRunning():
                 # Spara handens handled
                 if i == mp_hands.HandLandmark.WRIST:
                     hand_wrist_pixel = (int(fx), int(fy))
-
+                    
     # Rita pose skelett
     if pose_results.pose_landmarks:
         h, w, _ = frame.shape
