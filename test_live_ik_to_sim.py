@@ -181,9 +181,9 @@ def set_hand_grips(robot, finger_grips):
     pinky = finger_grips["pinky"]
 
     thumb_angles = [
-        thumb * 0.5,
-        thumb * 0.6,
-        thumb * 0.8,
+        -thumb * 0.5,
+        -thumb * 0.6,
+        -thumb * 0.8,
     ]
 
     index_angle = -index * 0.8
@@ -364,13 +364,11 @@ while pipeline.isRunning():
                         sh_roty,
                         sh_rotx,
                         elbow_roty,
-                        elbow=0.0,             #float(q_robot[0]),
-                        sh_flex=0.0,         #float(q_robot[1]),
-                        sh_abd=0.0,         #float(q_robot[2]),
+                        elbow=float(q_robot[0]),
+                        sh_flex=float(q_robot[1]),
+                        sh_abd=float(q_robot[2]),
                         sh_rot=0.0,         #float(q_robot[3]),
                     )
-
-                    p.stepSimulation()
 
                     if len(hand_keypoints) >= 21:
 
@@ -380,6 +378,8 @@ while pipeline.isRunning():
 
                         if frame_count % modolu == 0:
                             print("Finger grips:", finger_grips)
+
+                    p.stepSimulation()
                     
 
                 if frame_count % modolu == 0:
