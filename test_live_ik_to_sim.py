@@ -8,7 +8,7 @@ from inverse_kinematics import InverseKinematics
 from sim.joint_limits import clamp_dmp_vector
 import pybullet as p
 import time
-from hand_kinematics import calculate_grip_from_hand, calculate_finger_grips
+from hand_kinematics import calculate_finger_grips
 
 # -----------------------------
 # MediaPipe setup You need to install mediapipe with: pip install mediapipe==0.10.14 if you have Python 3.12
@@ -27,7 +27,7 @@ hands = mp_hands.Hands(
     static_image_mode=False,
     max_num_hands=1,
     model_complexity=1,
-    min_detection_confidence=0.5,
+    min_detection_confidence=0.4,
     min_tracking_confidence=0.5
 )
 
@@ -151,10 +151,6 @@ for i in range(-1, num_joints):
     for j in range(-1, num_joints):
         p.setCollisionFilterPair(robot, robot, i, j, enableCollision=0)
 
-recording = False
-recorded_data = []
-frame_count = 0
-
 wrist_filter = KalmanPointFilter()
 elbow_filter = KalmanPointFilter()
 shoulder_filter = KalmanPointFilter()
@@ -162,9 +158,8 @@ hand_filters = [KalmanPointFilter() for _ in range(21)]
 ik = InverseKinematics()
 ik.start()
 
-q_human = None
-prev_q_robot = None
-ANGLE_ALPHA = 0.25  # lägre = mjukare men mer latency
+
+#ANGLE_ALPHA = 0.25  # lägre = mjukare men mer latency
 
 #-----------------------------
 # Inverse kinematics main function fingers
@@ -206,17 +201,56 @@ def set_hand_grips(robot, finger_grips):
     for j in pinky_joints:
         p.resetJointState(robot, j, pinky_angle)
 
+#-----------------------------
+# DMP-smoothing class
+#-----------------------------
+
+class LiveDMP:
+    """
+    A real-time continuous attractor based on DMP dynamics.
+    Acts as a perfectly critically damped spring to smooth live, jittery targets.
+    """
+    def __init__(self, num_dofs=4, alpha_z=25.0, dt=0.033):
+        self.num_dofs = num_dofs
+        self.dt = dt
+        
+        # DMP Constants
+        self.alpha_z = alpha_z
+        self.beta_z = self.alpha_z / 4.0  # Critical damping threshold
+        
+        # State variables
+        self.y = None      # Current smoothed position
+        self.dy = np.zeros(num_dofs) # Current velocity
+        
+    def step(self, target_g):
+        target_g = np.array(target_g, dtype=float)
+        
+        # Initialize position to the first seen target to prevent massive snapping
+        if self.y is None:
+            self.y = target_g.copy()
+            return self.y
+            
+        # Calculate acceleration needed to reach the live target smoothly
+        ddy = self.alpha_z * (self.beta_z * (target_g - self.y) - self.dy)
+        
+        # Euler integration
+        self.dy += ddy * self.dt
+        self.y += self.dy * self.dt
+        
+        return self.y.copy()
+
+q_human = None
+# increase 25.0 for faster, snabbare tracking
+live_dmp = LiveDMP(num_dofs=4, alpha_z=25.0, dt=0.033)
 
 # -----------------------------
 # Main loop
 # -----------------------------
 while pipeline.isRunning():
-    frame_count += 1
     hand_wrist_pixel = None
     hand_keypoints = []
     frame_in = video_queue.get()
     frame = frame_in.getCvFrame()
-    modolu = 5
 
     depth_in = depth_queue.tryGet()
     depth_frame = None
@@ -292,7 +326,7 @@ while pipeline.isRunning():
         elbow = lm[mp_pose.PoseLandmark.LEFT_ELBOW]
         wrist = lm[mp_pose.PoseLandmark.LEFT_WRIST]
 
-        if shoulder.visibility > 0.5 and elbow.visibility > 0.5 and wrist.visibility > 0.5:
+        if shoulder.visibility > 0.5 and elbow.visibility > 0.5 and (hand_wrist_pixel is not None or wrist.visibility > 0.5):
             sx, sy = int(shoulder.x * w), int(shoulder.y * h)
             ex, ey = int(elbow.x * w), int(elbow.y * h)
 
@@ -348,14 +382,12 @@ while pipeline.isRunning():
                 if angles is not None:
                     q_human = angles["q_rad"]
                     q_robot = q_human.copy()
+
+
                     q_robot = clamp_dmp_vector(q_robot)
 
-                    if prev_q_robot is None:
-                        q_smooth = q_robot
-                    else:
-                        q_smooth = ANGLE_ALPHA * q_robot + (1 - ANGLE_ALPHA) * prev_q_robot
-
-                    prev_q_robot = q_smooth
+                    # Pass the raw, clamped target to the Live DMP to get the smooth position
+                    q_smooth = live_dmp.step(q_robot)
                     q_robot = q_smooth
 
                     set_pose(
@@ -369,50 +401,16 @@ while pipeline.isRunning():
                         sh_abd=float(q_robot[2]),
                         sh_rot=0.0,         #float(q_robot[3]),
                     )
-
+                    
                     if len(hand_keypoints) >= 21:
 
                         finger_grips = calculate_finger_grips(hand_keypoints)
 
                         set_hand_grips(robot, finger_grips)
-
-                        if frame_count % modolu == 0:
-                            print("Finger grips:", finger_grips)
-
-                    p.stepSimulation()
                     
+                    p.stepSimulation()
 
-                if frame_count % modolu == 0:
-                    print(json.dumps(hand_keypoints, indent=2))
-                    if shoulder_depth is not None:
-                        print(f"Shoulder: x={fsx:.3f}, y={fsy:.3f}, depth={fsz:.3f} m")
-                    else:
-                        print(f"Shoulder: x={fsx:.3f}, y={fsy:.3f}, depth=None")
 
-                    if elbow_depth is not None:
-                        print(f"Elbow:    x={fex:.3f}, y={fey:.3f}, depth={fez:.3f} m")
-                    else:
-                        print(f"Elbow:    x={fex:.3f}, y={fey:.3f}, depth=None")
-                    if hand_wrist_pixel is not None:
-                        if wrist_depth is not None:
-                            print(f"Wrist: x={fwx:.3f}, y={fwy:.3f}, depth={fwz:.3f} m")
-                        else:
-                            print(f"Wrist: x={fwx}, y={fwy}, depth=None")
-                    print("-----")
-                    print("Frame count:", frame_count)
-                    print("-----")
-                    if angles is not None:
-                        print("IK angles deg:", angles["q_deg"])
-                        
-                    if recording:
-                        frame_data = {
-                            "shoulder": [fsx, fsy, fsz],
-                            "elbow": [fex, fey, fez],
-                            "hand": hand_keypoints
-                        }
-
-                        recorded_data.append(frame_data)
-                        
             if fsx is None or fsy is None or fex is None or fey is None or fwx is None or fwy is None:
                 continue
 
@@ -428,20 +426,6 @@ while pipeline.isRunning():
     cv2.imshow("OAK-D Lite Hand Skeleton", frame)
 
     key = cv2.waitKey(1) & 0xFF
-
-    if key == ord('k'):
-        recording = not recording
-        print("Recording:", recording)
-
-        if not recording:
-            with open("recording.json", "w") as f:
-                output = {
-                    "user_id": 1,
-                    "sequence": len(recorded_data),
-                    "data": recorded_data
-                }  
-                json.dump(output, f, indent=2)
-            print("Saved recording.json")
 
     if key == ord('c'):
         if q_human is not None:
