@@ -8,7 +8,7 @@ from inverse_kinematics import InverseKinematics
 from sim.joint_limits import clamp_dmp_vector
 import pybullet as p
 import time
-from hand_kinematics import calculate_finger_grips
+from hand_kinematics import calculate_finger_grips, calculate_hand_rotation_2d
 
 # -----------------------------
 # MediaPipe setup You need to install mediapipe with: pip install mediapipe==0.10.14 if you have Python 3.12
@@ -26,7 +26,7 @@ pinky_joints  = [23, 24, 25]
 hands = mp_hands.Hands(
     static_image_mode=False,
     max_num_hands=1,
-    model_complexity=1,
+    model_complexity=0, # 0 är lättare modell, 1 är full, 2 är heavy. För live tracking kan det vara värt att testa 0 för att minska latensen  
     min_detection_confidence=0.4,
     min_tracking_confidence=0.5
 )
@@ -35,7 +35,7 @@ mp_pose = mp.solutions.pose
 
 pose = mp_pose.Pose(
     static_image_mode=False,
-    model_complexity=1,  # motsvarar ungefär "Full"
+    model_complexity=0,  # motsvarar ungefär "Full"
     min_detection_confidence=0.5,
     min_tracking_confidence=0.5
 )
@@ -69,8 +69,8 @@ stereo.setOutputSize(640, 480)
 left_out.link(stereo.left)
 right_out.link(stereo.right)
 
-depth_queue = stereo.depth.createOutputQueue(maxSize=4, blocking=False)
-video_queue = cam_out.createOutputQueue(maxSize=4, blocking=False)
+depth_queue = stereo.depth.createOutputQueue(maxSize=1, blocking=False) # Var 4 men testar byta till 1 för att se om det minskar latensen, risk för att missa frames dock
+video_queue = cam_out.createOutputQueue(maxSize=1, blocking=False)      
 
 pipeline.start()
 print("OAK-D Lite is running. Press 'q' to quit.")
@@ -258,7 +258,10 @@ while pipeline.isRunning():
 
     hand_wrist_pixel = None
     hand_keypoints = []
-    frame_in = video_queue.get()
+    frame_in = video_queue.get() #från get till tryget för att undvika att blocka om inget
+    if frame_in is None:
+        continue 
+
     frame = frame_in.getCvFrame()
 
     depth_in = depth_queue.tryGet()
@@ -397,10 +400,20 @@ while pipeline.isRunning():
 
                      # 1. Pass BOTH the target and the dt
                     q_smooth = live_arm_dmp.step(q_robot, dt)
-                    
                     # 2. Clamp it AGAIN to prevent overshoot crashing the robot
                     q_robot = clamp_dmp_vector(q_smooth)
+                    
+                    prev_hand_rot = None
+                    ROT_ALPHA = 0.2
+                    hand_rot = calculate_hand_rotation_2d(hand_keypoints)
+                    if prev_hand_rot is None:
+                        smooth_rot = hand_rot
+                    else:
+                        smooth_rot = ROT_ALPHA * hand_rot + (1 - ROT_ALPHA) * prev_hand_rot
 
+                    prev_hand_rot = smooth_rot
+                    hand_rot = smooth_rot
+                    
                     set_pose(
                         robot,
                         sh_rotz,
@@ -410,7 +423,7 @@ while pipeline.isRunning():
                         elbow=float(q_robot[0]),
                         sh_flex=float(q_robot[1]),
                         sh_abd=float(q_robot[2]),
-                        sh_rot=0.0,         #float(q_robot[3]),
+                        sh_rot=0.0#float(hand_rot), Looks weird in the simulation with the other joints but will work with the robot         
                     )
                     
                     # ----- FINGER SMOOTHING -----

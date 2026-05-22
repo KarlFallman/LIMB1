@@ -64,3 +64,30 @@ def calculate_finger_grips(hand_keypoints):
         finger_grips[name] = float(np.clip(grip, 0.0, 1.0))
 
     return finger_grips
+
+def calculate_hand_rotation_2d(hand_keypoints):
+    if len(hand_keypoints) < 21:
+        return 0.0
+
+    index_mcp = np.array([
+        hand_keypoints[5]["x"],
+        hand_keypoints[5]["y"]
+    ], dtype=float)
+
+    pinky_mcp = np.array([
+        hand_keypoints[17]["x"],
+        hand_keypoints[17]["y"]
+    ], dtype=float)
+
+    v = pinky_mcp - index_mcp
+
+    angle = np.arctan2(v[1], v[0])
+
+    # Kalibrera ungefärlig neutral
+    neutral_angle = 0.0
+    rotation = angle - neutral_angle
+
+    ROT_MAX = np.radians(40)
+    rotation = np.clip(rotation, -ROT_MAX, ROT_MAX)
+
+    return rotation
