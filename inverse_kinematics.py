@@ -11,6 +11,7 @@ class InverseKinematics:
         self.running = False
         # Initiala offsets för kalibrering Elbow
         self.elbow_zero_offset = 0.0
+        self.elbow_is_straight = True
 
         # Initiala offset för kalibrering Shoulder flexion
         self.upper_arm_neutral = None
@@ -179,10 +180,19 @@ class InverseKinematics:
         elbow_flexion = max(0.0, elbow_flexion)
 
         # Inför en "deadzone" för att undvika små rörelser när armen är nästan rak.
-        ELBOW_DEADZONE = np.radians(5)
+        
+        ELBOW_ENTER_BEND = np.radians(12) #Now we do this insted of deadzone
+        ELBOW_EXIT_BEND = np.radians(5)
 
-        if elbow_flexion < ELBOW_DEADZONE:
-            elbow_flexion = 0.0
+        if self.elbow_is_straight:
+            if elbow_flexion < ELBOW_ENTER_BEND:
+                elbow_flexion = 0.0
+            else:
+                self.elbow_is_straight = False
+        else:
+            if elbow_flexion < ELBOW_EXIT_BEND:
+                elbow_flexion = 0.0
+                self.elbow_is_straight = True
 
         # Elbow max är 60 grader
         ROBOT_ELBOW_MAX = np.radians(60)

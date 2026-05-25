@@ -395,14 +395,13 @@ while pipeline.isRunning():
                     q_human = angles["q_rad"]
                     q_robot = q_human.copy()
 
-
                     q_robot = clamp_dmp_vector(q_robot)
 
                      # 1. Pass BOTH the target and the dt
                     q_smooth = live_arm_dmp.step(q_robot, dt)
                     # 2. Clamp it AGAIN to prevent overshoot crashing the robot
                     q_robot = clamp_dmp_vector(q_smooth)
-                    
+
                     prev_hand_rot = None
                     ROT_ALPHA = 0.2
                     hand_rot = calculate_hand_rotation_2d(hand_keypoints)
