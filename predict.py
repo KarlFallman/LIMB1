@@ -18,7 +18,7 @@ MODEL_PATH = "movement_gru_best.pth"
 
 DATA_FOLDER = "Data/References"
 TEST_FOLDER = "Test/Final"
-TEST_FILE = "ID14test3.json"
+TEST_FILE = "ID11test.json"
 
 
 # =========================
