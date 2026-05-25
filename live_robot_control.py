@@ -6,9 +6,11 @@ import math
 from kalman_filter import KalmanPointFilter
 from inverse_kinematics import InverseKinematics
 from sim.joint_limits import clamp_dmp_vector
-import pybullet as p
 import time
 from hand_kinematics import calculate_finger_grips, calculate_hand_rotation_2d
+from can_sender import CanSender
+
+can_sender = CanSender()
 
 # -----------------------------
 # MediaPipe setup You need to install mediapipe with: pip install mediapipe==0.10.14 if you have Python 3.12
@@ -105,53 +107,6 @@ def get_depth_at_point(depth_frame, x, y, rgb_w, rgb_h):
 def valid_depth(depth_mm):
     return depth_mm is not None and 200 < depth_mm < 3000
 
-# -----------------------------
-# PyBullet setup
-# -----------------------------
-
-def joint_index(body_uid, joint_name):
-    for i in range(p.getNumJoints(body_uid)):
-        info = p.getJointInfo(body_uid, i)
-        name = info[1].decode("utf-8")
-        if name == joint_name:
-            return i
-    raise KeyError(f"Joint not found: {joint_name}")
-
-
-def set_pose(robot, sh_rotz, sh_roty, sh_rotx, elbow_roty,
-             sh_rot=0.0, sh_flex=0.0, sh_abd=0.0, elbow=0.0):
-
-    ROBOT_ELBOW_MAX = 1.05  # ca 60 grader i radianer
-    ELBOW_GAIN = 1.5
-    SHOULDER_FLEX_SIM_ZERO = -1.39  # testa först att kalibrera detta istället för att hårdkoda
-
-    elbow = np.clip(elbow * ELBOW_GAIN, 0.0, ROBOT_ELBOW_MAX)
-   
-    p.resetJointState(robot, sh_rotz, sh_rot) # shoulder rotation
-    p.resetJointState(robot, sh_roty, SHOULDER_FLEX_SIM_ZERO + sh_flex) # shoulder flexion
-    p.resetJointState(robot, sh_rotx, sh_abd) # shoulder abduktion
-    p.resetJointState(robot, elbow_roty, elbow) # elbow flexion
-
-
-p.connect(p.GUI)
-p.setGravity(0, 0, 0)
-
-robot = p.loadURDF(
-    "sim/arm/left_arm.urdf",
-    basePosition=[0, 0, 0],
-    baseOrientation=p.getQuaternionFromEuler([0, 0, 0]),
-    useFixedBase=True,
-)
-
-sh_rotz = joint_index(robot, "jLeftShoulder_rotz")
-sh_rotx = joint_index(robot, "jLeftShoulder_rotx")
-sh_roty = joint_index(robot, "jLeftShoulder_roty")
-elbow_roty = joint_index(robot, "jLeftElbow_roty")
-
-num_joints = p.getNumJoints(robot)
-for i in range(-1, num_joints):
-    for j in range(-1, num_joints):
-        p.setCollisionFilterPair(robot, robot, i, j, enableCollision=0)
 
 wrist_filter = KalmanPointFilter()
 elbow_filter = KalmanPointFilter()
@@ -164,7 +119,7 @@ ik.start()
 # Inverse kinematics main function fingers
 #-----------------------------
 
-def set_hand_grips(robot, finger_grips):
+def set_hand_grips(finger_grips): #Keep or remove?
     if finger_grips is None:
         return
 
@@ -185,20 +140,6 @@ def set_hand_grips(robot, finger_grips):
     ring_angle = -ring * 0.8
     pinky_angle = -pinky * 0.8
 
-    for joint, angle in zip(thumb_joints, thumb_angles):
-        p.resetJointState(robot, joint, angle)
-
-    for j in index_joints:
-        p.resetJointState(robot, j, index_angle)
-
-    for j in middle_joints:
-        p.resetJointState(robot, j, middle_angle)
-
-    for j in ring_joints:
-        p.resetJointState(robot, j, ring_angle)
-
-    for j in pinky_joints:
-        p.resetJointState(robot, j, pinky_angle)
 
 #-----------------------------
 # DMP-smoothing class
@@ -414,17 +355,11 @@ while pipeline.isRunning():
                     prev_hand_rot = smooth_rot
                     hand_rot = smooth_rot
                     
-                    set_pose(
-                        robot,
-                        sh_rotz,
-                        sh_roty,
-                        sh_rotx,
-                        elbow_roty,
-                        elbow=float(q_robot[0]),
-                        sh_flex=float(q_robot[1]),
-                        sh_abd=float(q_robot[2]),
-                        sh_rot=0.0,#float(-hand_rot), #Looks weird in the simulation with the other joints but will work with the robot         
-                    )
+                    q_deg = np.degrees(q_robot)
+
+                    can_sender.send_actuation(0x240, q_deg[0], 20.0)
+                    can_sender.send_actuation(0x220, q_deg[1], 20.0)
+                    can_sender.send_actuation(0x221, q_deg[2], 20.0)
                     
                     # ----- FINGER SMOOTHING -----
                     if len(hand_keypoints) >= 21:
@@ -454,9 +389,14 @@ while pipeline.isRunning():
                             "pinky": smooth_fingers[4]
                         }
 
-                        set_hand_grips(robot, finger_grips)
+                        set_hand_grips(finger_grips)
+
+                        #can_sender.send_actuation(0x261, thumb_angle_deg)
+                        #can_sender.send_actuation(0x262, index_angle_deg)
+                        #can_sender.send_actuation(0x263, middle_angle_deg)
+                        #can_sender.send_actuation(0x264, ring_angle_deg)
+                        #can_sender.send_actuation(0x265, pinky_angle_deg)
                     
-                    p.stepSimulation()
 
 
             if fsx is None or fsy is None or fex is None or fey is None or fwx is None or fwy is None:
@@ -498,7 +438,7 @@ while pipeline.isRunning():
 
     if key == ord('q'):
         ik.stop()
-        p.disconnect()
+        can_sender.close()
         break
 
 hands.close()
