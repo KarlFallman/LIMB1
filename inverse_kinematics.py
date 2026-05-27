@@ -24,6 +24,9 @@ class InverseKinematics:
         self.side_axis = np.array([1.0, 0.0, 0.0])
         self.forward_axis = np.array([0.0, 0.0, -1.0])
 
+        #rotation
+        self.shoulder_rotation_enabled = False
+
     def start(self):
         self.running = True
         print("Inverse kinematics started")
@@ -126,6 +129,36 @@ class InverseKinematics:
                 np.degrees(shoulder_abd_angle),
                 "deg"
             )
+    
+    def calculate_shoulder_rotation_from_forearm(
+        self,
+        elbow,
+        wrist,
+        rotation_enabled,
+        z_range=0.25,
+    ):
+        if not rotation_enabled:
+            return 0.0
+
+        elbow = self._safe_point(elbow)
+        wrist = self._safe_point(wrist)
+
+        if elbow is None or wrist is None:
+            return 0.0
+
+        forearm_z = wrist[2] - elbow[2]
+
+        SHOULDER_ROT_MAX = np.radians(40)
+
+        shoulder_rot = np.clip(
+            forearm_z / z_range,
+            -1.0,
+            1.0
+        ) * SHOULDER_ROT_MAX
+
+        return shoulder_rot
+
+        
     #-----------------------------
     # Huvudmetod för att beräkna armvinklar
     #----------------------------- 
@@ -272,9 +305,24 @@ class InverseKinematics:
         # -----------------------------
         # 4. Shoulder internal rotation
         # -----------------------------
-        # Svår att uppskatta från bara shoulder-elbow-wrist.
+        # Limiteras så den inte påverkar de andra lederna så mycket. Kan ev. förbättras i framtiden med fler sensorer eller ML-modell.
+        # roterar endast när elbow är max flexad och överarmen är i en position rakt ner.
         # Sätts till 0 tills vidare.
-        shoulder_internal_rotation = 0.0
+
+        upper_arm_down = shoulder_flexion < np.radians(10) and shoulder_abduction < np.radians(10)
+        elbow_fully_flexed = elbow_flexion > np.radians(50)
+
+        rotation_enabled = upper_arm_down and elbow_fully_flexed
+
+        shoulder_internal_rotation = self.calculate_shoulder_rotation_from_forearm(
+            elbow,
+            wrist,
+            rotation_enabled
+        )
+        
+        #-----------------------------
+        # Samla alla vinklar i en array och konvertera till grader
+        #-----------------------------
 
         q_rad = np.array([
             elbow_flexion,

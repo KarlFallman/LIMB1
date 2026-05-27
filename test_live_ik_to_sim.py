@@ -118,8 +118,8 @@ def joint_index(body_uid, joint_name):
     raise KeyError(f"Joint not found: {joint_name}")
 
 
-def set_pose(robot, sh_rotz, sh_roty, sh_rotx, elbow_roty,
-             sh_rot=0.0, sh_flex=0.0, sh_abd=0.0, elbow=0.0):
+def set_pose(robot, sh_rotz, sh_roty, sh_rotx, elbow_roty, wrist_rotx, wrist_rotz,
+             sh_rot=0.0, sh_flex=0.0, sh_abd=0.0, elbow=0.0,  wrist_x=0.0, wrist_z=0.0):
 
     ROBOT_ELBOW_MAX = 1.05  # ca 60 grader i radianer
     ELBOW_GAIN = 1.5
@@ -132,6 +132,8 @@ def set_pose(robot, sh_rotz, sh_roty, sh_rotx, elbow_roty,
     p.resetJointState(robot, sh_rotx, sh_abd) # shoulder abduktion
     p.resetJointState(robot, elbow_roty, elbow) # elbow flexion
 
+    p.resetJointState(robot, wrist_rotx, wrist_x) # wrist rotation
+    p.resetJointState(robot, wrist_rotz, wrist_z) # wrist rotation
 
 p.connect(p.GUI)
 p.setGravity(0, 0, 0)
@@ -147,6 +149,8 @@ sh_rotz = joint_index(robot, "jLeftShoulder_rotz")
 sh_rotx = joint_index(robot, "jLeftShoulder_rotx")
 sh_roty = joint_index(robot, "jLeftShoulder_roty")
 elbow_roty = joint_index(robot, "jLeftElbow_roty")
+wrist_rotx = joint_index(robot, "jLeftWrist_rotx")
+wrist_rotz = joint_index(robot, "jLeftWrist_rotz")
 
 num_joints = p.getNumJoints(robot)
 for i in range(-1, num_joints):
@@ -412,17 +416,23 @@ while pipeline.isRunning():
 
                     prev_hand_rot = smooth_rot
                     hand_rot = smooth_rot
-                    
+
+                    forearm = np.array(wrist_point) - np.array(elbow_point)
+ 
                     set_pose(
                         robot,
                         sh_rotz,
                         sh_roty,
                         sh_rotx,
                         elbow_roty,
+                        wrist_rotx, 
+                        wrist_rotz,
                         elbow=float(q_robot[0]),
                         sh_flex=float(q_robot[1]),
                         sh_abd=float(q_robot[2]),
-                        sh_rot=0.0,#float(-hand_rot), #Looks weird in the simulation with the other joints but will work with the robot         
+                        sh_rot=0.0,#float(q_robot[3]),
+                        wrist_x=float(-hand_rot), 
+                        wrist_z=0.0       
                     )
                     
                     # ----- FINGER SMOOTHING -----
